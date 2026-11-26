@@ -1,13 +1,91 @@
 <script>
 /**
- * Charts.html — Zero-CDN Native SVG Charting Library for Glapp+ Web App.
- * CSP-safe inside Google Sites iframes; supports Multi-Event Overlays.
+ * Charts.html — V2.2 Zero-CDN Native SVG Charting Library.
  * Attached explicitly to window.Charts for Apps Script HtmlService scope safety.
+ * Enforces Indian DD-MM-YYYY / DD MMM dates, high-contrast cyan Strength markers,
+ * visible Med/Supp change lines, explicit legends, and hourly Bateman PK curves.
  */
 window.Charts = (function () {
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const MED_EVENTS = {
+    '2026-10-02': 'Vit D 600K',
+    '2026-10-10': 'IV Iron',
+    '2026-11-10': 'Thyro 100',
+    '2026-11-25': 'Mg + O3'
+  };
+
   function esc(s) {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function cleanIso(s) {
+    return String(s || '').replace(/\s+(00:00:00|05:30:00).*$/i, '').replace(/T.*$/, '').trim();
+  }
+
+  function fmtDateIN(iso) {
+    const c = cleanIso(iso);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(c)) return c || '—';
+    const p = c.split('-');
+    return p[2] + '-' + p[1] + '-' + p[0];
+  }
+
+  function fmtAxisDate(iso) {
+    const c = cleanIso(iso);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(c)) return c;
+    const p = c.split('-');
+    return p[2] + ' ' + (MONTHS[Number(p[1]) - 1] || p[1]);
+  }
+
+  function fmtHrsMin(hrs) {
+    if (hrs === '' || hrs == null || isNaN(Number(hrs))) return '—';
+    const totalMins = Math.round(Number(hrs) * 60);
+    const h = Math.floor(totalMins / 60);
+    const m = totalMins % 60;
+    return h + 'h ' + (m < 10 ? '0' : '') + m + 'm';
+  }
+
+  function legendHtml(items) {
+    return '<div class="chart-legend">' + items.map(function (it) {
+      return '<span class="leg-item"><span class="leg-dot" style="background:' + it.color + ';"></span>' + esc(it.label) + '</span>';
+    }).join('') + '</div>';
+  }
+
+  // Smooth hourly Bateman PK curve (2h steps across row date span)
+  function buildBatemanPath(rows, shots, xOf, padT, plotH) {
+    if (!rows.length || !shots || !shots.length) return '';
+    const startMs = new Date(cleanIso(rows[0].date) + 'T00:00:00Z').getTime();
+    const endMs = new Date(cleanIso(rows[rows.length - 1].date) + 'T23:59:59Z').getTime();
+    const spanMs = Math.max(86400000, endMs - startMs);
+    const ke = Math.LN2 / 120.0, ka = 0.055;
+    const stepMs = 2 * 3600 * 1000;
+    const pts = [];
+    let maxVal = 0.1;
+
+    for (let t = startMs; t <= endMs; t += stepMs) {
+      let mg = 0;
+      for (let j = 0; j < shots.length; j++) {
+        const s = shots[j];
+        const sMs = new Date(cleanIso(s.date) + 'T' + (s.time && s.time.length === 5 ? s.time : '12:00') + ':00Z').getTime();
+        const hrs = (t - sMs) / 3600000;
+        if (hrs > 0) {
+          const frac = (ka / (ka - ke)) * (Math.exp(-ke * hrs) - Math.exp(-ka * hrs));
+          mg += Number(s.dose_mg || 0) * Math.max(0, frac);
+        }
+      }
+      if (mg > maxVal) maxVal = mg;
+      pts.push({ fracX: (t - startMs) / spanMs, mg: mg });
+    }
+
+    const xStart = xOf(0), xEnd = xOf(rows.length - 1), xSpan = Math.max(1, xEnd - xStart);
+    const scaleMax = Math.max(5.5, maxVal * 1.1);
+    let d = '';
+    pts.forEach(function (pt, idx) {
+      const x = xStart + pt.fracX * xSpan;
+      const y = padT + plotH - (pt.mg / scaleMax) * (plotH * 0.88);
+      d += (idx === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1) + ' ';
+    });
+    return '<path d="' + d.trim() + '" fill="none" stroke="#22C55E" stroke-width="2.2" opacity="0.88"/>';
   }
 
   // 1. Dynamic 5- or 6-Segment Weekly Body Readiness Ring
@@ -16,7 +94,6 @@ window.Charts = (function () {
     const n = pillars.length;
     const gapDeg = 7;
     const segDeg = (360 / n) - gapDeg;
-
     function polar(deg) {
       const rad = ((deg - 90) * Math.PI) / 180;
       return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
@@ -26,30 +103,24 @@ window.Charts = (function () {
       const large = (endDeg - startDeg) > 180 ? 1 : 0;
       return 'M ' + p1.x.toFixed(1) + ' ' + p1.y.toFixed(1) + ' A ' + r + ' ' + r + ' 0 ' + large + ' 1 ' + p2.x.toFixed(1) + ' ' + p2.y.toFixed(1);
     }
-
     let paths = '';
     pillars.forEach(function (p, i) {
       const s = i * (segDeg + gapDeg) + gapDeg / 2;
       const e = s + segDeg;
       const pct = p.score == null ? 0 : Math.max(0.08, Math.min(1, p.score / 100));
-      const fillEnd = s + segDeg * pct;
       paths += '<path d="' + arc(s, e) + '" fill="none" stroke="#26262B" stroke-width="' + sw + '" stroke-linecap="round"/>';
       if (p.score != null) {
-        paths += '<path d="' + arc(s, fillEnd) + '" fill="none" stroke="' + p.color + '" stroke-width="' + sw + '" stroke-linecap="round"/>';
+        paths += '<path d="' + arc(s, s + segDeg * pct) + '" fill="none" stroke="' + p.color + '" stroke-width="' + sw + '" stroke-linecap="round"/>';
       }
     });
-
-    return (
-      '<svg viewBox="0 0 220 220" style="width:180px;height:180px;display:block;margin:0 auto;">' +
-        paths +
-        '<text x="110" y="102" text-anchor="middle" fill="#F4F4F6" font-size="30" font-weight="700">' + (avgScore == null ? '—' : avgScore) + '</text>' +
-        '<text x="110" y="122" text-anchor="middle" fill="#9A9AA6" font-size="11" font-weight="600">' + esc(modeLabel) + '</text>' +
-        '<text x="110" y="138" text-anchor="middle" fill="#B85A9E" font-size="10">' + n + '-Pillar Readiness</text>' +
-      '</svg>'
-    );
+    return '<svg viewBox="0 0 220 220" style="width:180px;height:180px;display:block;margin:0 auto;">' +
+      paths +
+      '<text x="110" y="102" text-anchor="middle" fill="#F4F4F6" font-size="30" font-weight="700">' + (avgScore == null ? '—' : avgScore) + '</text>' +
+      '<text x="110" y="122" text-anchor="middle" fill="#9A9AA6" font-size="11" font-weight="600">' + esc(modeLabel) + '</text>' +
+      '<text x="110" y="138" text-anchor="middle" fill="#B85A9E" font-size="10">' + n + '-Pillar Readiness</text></svg>';
   }
 
-  // 2. Compact Mini-Charts for Glapp Progress Summary Cards
+  // 2. Compact Mini-Charts
   function renderMiniSpark(values, color) {
     const nums = values.filter(function (v) { return v !== '' && v != null && !isNaN(Number(v)); }).map(Number);
     if (nums.length < 2) return '<svg width="78" height="28"><line x1="4" y1="14" x2="74" y2="14" stroke="#2F2F36" stroke-dasharray="2,2"/></svg>';
@@ -65,11 +136,10 @@ window.Charts = (function () {
   function renderMiniBars(values, color) {
     const slice = values.slice(-10).map(function (v) { return (v === '' || v == null || isNaN(Number(v))) ? 0 : Number(v); });
     const mx = Math.max.apply(null, slice.concat([1]));
-    const bw = 5, gap = 2.5;
     let rects = '';
     slice.forEach(function (v, i) {
       const h = Math.max(2, (v / mx) * 22);
-      rects += '<rect x="' + (2 + i * (bw + gap)).toFixed(1) + '" y="' + (26 - h).toFixed(1) + '" width="' + bw + '" height="' + h.toFixed(1) + '" rx="1.5" fill="' + (v > 0 ? color : '#2F2F36') + '"/>';
+      rects += '<rect x="' + (2 + i * 7.5).toFixed(1) + '" y="' + (26 - h).toFixed(1) + '" width="5" height="' + h.toFixed(1) + '" rx="1.5" fill="' + (v > 0 ? color : '#2F2F36') + '"/>';
     });
     return '<svg width="78" height="28" viewBox="0 0 78 28">' + rects + '</svg>';
   }
@@ -84,42 +154,173 @@ window.Charts = (function () {
     return '<svg width="78" height="28" viewBox="0 0 78 28">' + dots + '</svg>';
   }
 
-  // 3. Multi-Event Overlay Vertical Markers
+  // 3. Multi-Event Overlay Markers (High-contrast Cyan Strength + Visible Med/Supp Badges)
   function buildOverlaySvg(rows, overlays, xOf, padT, plotH) {
     let svg = '';
     rows.forEach(function (r, i) {
       const x = xOf(i);
+      const d = cleanIso(r.date);
       if (overlays.jabs && Number(r.days_since_shot) === 0 && r.active_dose_mg !== '') {
         svg += '<line x1="' + x + '" y1="' + padT + '" x2="' + x + '" y2="' + (padT + plotH) + '" stroke="#B85A9E" stroke-width="1.3" stroke-dasharray="3,2"/>';
-        svg += '<rect x="' + (x - 16) + '" y="' + (padT - 14) + '" width="32" height="13" rx="4" fill="#B85A9E"/>';
-        svg += '<text x="' + x + '" y="' + (padT - 4.5) + '" text-anchor="middle" fill="#fff" font-size="8.5" font-weight="700">' + esc(r.active_dose_mg) + 'mg</text>';
+        svg += '<rect x="' + (x - 16) + '" y="' + (padT - 15) + '" width="32" height="13" rx="4" fill="#B85A9E"/>';
+        svg += '<text x="' + x + '" y="' + (padT - 5.5) + '" text-anchor="middle" fill="#fff" font-size="8.5" font-weight="700">' + esc(r.active_dose_mg) + 'mg</text>';
+      }
+      if (overlays.meds && MED_EVENTS[d]) {
+        svg += '<line x1="' + x + '" y1="' + padT + '" x2="' + x + '" y2="' + (padT + plotH) + '" stroke="#38BDF8" stroke-width="1.6" stroke-dasharray="4,2"/>';
+        svg += '<rect x="' + (x - 24) + '" y="' + (padT + 2) + '" width="48" height="13" rx="4" fill="#0EA5E9"/>';
+        svg += '<text x="' + x + '" y="' + (padT + 11) + '" text-anchor="middle" fill="#fff" font-size="8" font-weight="700">' + esc(MED_EVENTS[d]) + '</text>';
       }
       if (overlays.period && r.active_period === 'Yes') {
-        svg += '<rect x="' + (x - 4) + '" y="' + padT + '" width="8" height="' + plotH + '" fill="#F472B6" opacity="0.16"/>';
+        svg += '<rect x="' + (x - 4) + '" y="' + padT + '" width="8" height="' + plotH + '" fill="#F472B6" opacity="0.18"/>';
       }
       if (overlays.workouts && Number(r.strength_sessions) > 0) {
-        svg += '<circle cx="' + x + '" cy="' + (padT + plotH - 5) + '" r="3.5" fill="#F59E0B"/>';
+        svg += '<circle cx="' + x + '" cy="' + (padT + plotH - 6) + '" r="4.5" fill="#38BDF8" stroke="#141416" stroke-width="1.2"><title>' + fmtDateIN(d) + ': Strength workout</title></circle>';
       }
       if (overlays.poorSleep && r.sleep_hrs !== '' && Number(r.sleep_hrs) < 6.0) {
-        svg += '<line x1="' + x + '" y1="' + (padT + plotH - 12) + '" x2="' + x + '" y2="' + (padT + plotH) + '" stroke="#EF4444" stroke-width="2"/>';
-      }
-      if (overlays.meds && (r.date === '2026-10-02' || r.date === '2026-10-10' || r.date === '2026-11-10' || r.date === '2026-11-25')) {
-        svg += '<line x1="' + x + '" y1="' + padT + '" x2="' + x + '" y2="' + (padT + plotH) + '" stroke="#38BDF8" stroke-width="1.2" stroke-dasharray="2,2"/>';
+        svg += '<rect x="' + (x - 5) + '" y="' + padT + '" width="10" height="' + plotH + '" fill="#EF4444" opacity="0.14"/>';
       }
     });
     return svg;
   }
 
-  // 4. Main Detail Chart (Line / Dual-Line / Bar / Zoned-Line / PK+Symptom Dot)
+  // 4. Stacked Sleep Architecture Bar Chart (Deep + REM + Light + Awake + Nocturnal HR Spikes)
+  function renderStackedSleepChart(rows, overlays) {
+    if (!rows.length) return '<div style="padding:28px;text-align:center;color:var(--muted);font-size:12px;">No sleep data in range.</div>';
+    const W = 720, H = 265, padL = 46, padR = 18, padT = 26, padB = 32;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const xOf = function (i) { return rows.length === 1 ? padL + plotW / 2 : padL + (i / (rows.length - 1)) * plotW; };
+    const maxHrs = 10.5;
+    const yOf = function (h) { return padT + plotH - (Math.min(maxHrs, h) / maxHrs) * plotH; };
+
+    let grid = '';
+    [0, 2, 4, 6, 8, 10].forEach(function (h) {
+      const y = yOf(h);
+      grid += '<line x1="' + padL + '" y1="' + y.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + y.toFixed(1) + '" stroke="#2F2F36" stroke-dasharray="2,3"/>';
+      grid += '<text x="' + (padL - 6) + '" y="' + (y + 3.5).toFixed(1) + '" text-anchor="end" fill="#9A9AA6" font-size="9.5">' + h + 'h</text>';
+    });
+    const ov = buildOverlaySvg(rows, overlays || {}, xOf, padT, plotH);
+
+    const bw = Math.max(5, Math.min(20, (plotW / rows.length) * 0.68));
+    let bars = '';
+    rows.forEach(function (r, i) {
+      if (r.sleep_hrs === '' || r.sleep_hrs == null) return;
+      const x = xOf(i) - bw / 2;
+      const totH = Number(r.sleep_hrs);
+      const deepH = (Number(r.deep_mins) || 0) / 60;
+      const remH = (Number(r.rem_mins) || 0) / 60;
+      const lightH = (r.light_mins !== '' && r.light_mins != null) ? Number(r.light_mins) / 60 : Math.max(0, totH - deepH - remH);
+      const awakeH = (Number(r.awake_mins) || 0) / 60;
+      const isPoor = overlays && overlays.poorSleep && totH < 6.0;
+      const hrSpikes = Number(r.sleep_hr_events_count) || 0;
+      const tip = fmtDateIN(r.date) + ' · Sleep: ' + fmtHrsMin(totH) + ' (Deep ' + Math.round(deepH * 60) + 'm, REM ' + Math.round(remH * 60) + 'm, Light ' + Math.round(lightH * 60) + 'm, Awake ' + Math.round(awakeH * 60) + 'm)' + (hrSpikes ? ' · ⚡ ' + hrSpikes + ' HR spikes (peak ' + r.sleep_hr_peak_bpm + ' bpm)' : '');
+
+      let curBase = 0;
+      [
+        { h: deepH, c: '#6366F1' },
+        { h: remH, c: '#A855F7' },
+        { h: lightH, c: '#38BDF8' },
+        { h: awakeH, c: '#F59E0B' }
+      ].forEach(function (seg) {
+        if (seg.h <= 0) return;
+        const yTop = yOf(curBase + seg.h);
+        const yBot = yOf(curBase);
+        bars += '<rect x="' + x.toFixed(1) + '" y="' + yTop.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(1.5, yBot - yTop).toFixed(1) + '" fill="' + seg.c + '" opacity="' + (isPoor ? '1' : '0.9') + '"><title>' + esc(tip) + '</title></rect>';
+        curBase += seg.h;
+      });
+
+      if (isPoor) {
+        bars += '<rect x="' + (x - 1).toFixed(1) + '" y="' + yOf(curBase).toFixed(1) + '" width="' + (bw + 2).toFixed(1) + '" height="' + Math.max(2, yOf(0) - yOf(curBase)).toFixed(1) + '" fill="none" stroke="#EF4444" stroke-width="1.5" rx="2"/>';
+      }
+      if (hrSpikes > 0) {
+        bars += '<text x="' + xOf(i).toFixed(1) + '" y="' + Math.max(padT + 8, yOf(curBase) - 4).toFixed(1) + '" text-anchor="middle" fill="#F472B6" font-size="9" font-weight="700"><title>' + esc(tip) + '</title>⚡' + hrSpikes + '</text>';
+      }
+    });
+
+    let xTicks = '';
+    const step = Math.max(1, Math.floor(rows.length / 6));
+    for (let i = 0; i < rows.length; i += step) {
+      xTicks += '<text x="' + xOf(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle" fill="#9A9AA6" font-size="9.5">' + esc(fmtAxisDate(rows[i].date)) + '</text>';
+    }
+
+    return legendHtml([
+      { color: '#6366F1', label: 'Deep' }, { color: '#A855F7', label: 'REM' },
+      { color: '#38BDF8', label: 'Light' }, { color: '#F59E0B', label: 'Awake' },
+      { color: '#F472B6', label: '⚡ Nocturnal HR Spikes' }
+    ]) + '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;display:block;">' + grid + ov + bars + xTicks + '</svg>';
+  }
+
+  // 5. Steps + P90 Benchmark + Cyan Strength + Prior-Night Sleep Tiers
+  function renderActivityCorrelationChart(rows, p90, overlays) {
+    if (!rows.length) return '<div style="padding:28px;text-align:center;color:var(--muted);font-size:12px;">No step data in range.</div>';
+    const W = 720, H = 260, padL = 48, padR = 18, padT = 26, padB = 32;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const xOf = function (i) { return rows.length === 1 ? padL + plotW / 2 : padL + (i / (rows.length - 1)) * plotW; };
+    const stepVals = rows.map(function (r) { return r.steps === '' ? null : Number(r.steps); });
+    const maxV = Math.max.apply(null, stepVals.filter(function (v) { return v !== null; }).concat([Number(p90) || 8000, 6000])) * 1.12;
+    const yOf = function (v) { return padT + plotH - (v / maxV) * plotH; };
+
+    let grid = '';
+    for (let g = 0; g <= 4; g++) {
+      const gv = (maxV * g) / 4;
+      grid += '<line x1="' + padL + '" y1="' + yOf(gv).toFixed(1) + '" x2="' + (W - padR) + '" y2="' + yOf(gv).toFixed(1) + '" stroke="#2F2F36" stroke-dasharray="2,3"/>';
+      grid += '<text x="' + (padL - 6) + '" y="' + (yOf(gv) + 3.5).toFixed(1) + '" text-anchor="end" fill="#9A9AA6" font-size="9.5">' + Math.round(gv) + '</text>';
+    }
+
+    // Prior-night sleep tier shading (Good >=7h emerald, Poor <6h red)
+    let bands = '';
+    const bw = Math.max(6, Math.min(18, (plotW / rows.length) * 0.65));
+    rows.forEach(function (r, i) {
+      const prevSl = i > 0 && rows[i - 1].sleep_hrs !== '' ? Number(rows[i - 1].sleep_hrs) : null;
+      if (prevSl !== null && prevSl >= 7.0) {
+        bands += '<rect x="' + (xOf(i) - bw / 2).toFixed(1) + '" y="' + padT + '" width="' + bw.toFixed(1) + '" height="' + plotH + '" fill="#22C55E" opacity="0.10"/>';
+      } else if (prevSl !== null && prevSl < 6.0) {
+        bands += '<rect x="' + (xOf(i) - bw / 2).toFixed(1) + '" y="' + padT + '" width="' + bw.toFixed(1) + '" height="' + plotH + '" fill="#EF4444" opacity="0.12"/>';
+      }
+    });
+
+    let p90Line = '';
+    if (p90) {
+      const py = yOf(Number(p90));
+      p90Line = '<line x1="' + padL + '" y1="' + py.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + py.toFixed(1) + '" stroke="#22C55E" stroke-width="1.5" stroke-dasharray="5,3"/>' +
+        '<text x="' + (W - padR - 4) + '" y="' + (py - 4).toFixed(1) + '" text-anchor="end" fill="#22C55E" font-size="9.5" font-weight="700">Good-Day P90: ' + p90 + '</text>';
+    }
+
+    const ov = buildOverlaySvg(rows, overlays || {}, xOf, padT, plotH);
+    let bars = '';
+    rows.forEach(function (r, i) {
+      const v = stepVals[i];
+      if (v === null) return;
+      const prevSl = i > 0 && rows[i - 1].sleep_hrs !== '' ? fmtHrsMin(rows[i - 1].sleep_hrs) : '—';
+      const tip = fmtDateIN(r.date) + ' · Steps: ' + Math.round(v) + ' · Prior Sleep: ' + prevSl + (Number(r.strength_sessions) > 0 ? ' · Strength ✓' : '');
+      const y = yOf(v);
+      bars += '<rect x="' + (xOf(i) - bw / 2).toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(2, padT + plotH - y).toFixed(1) + '" rx="3" fill="#F59E0B" opacity="0.88"><title>' + esc(tip) + '</title></rect>';
+      if (Number(r.strength_sessions) > 0) {
+        bars += '<circle cx="' + xOf(i).toFixed(1) + '" cy="' + Math.max(padT + 6, y - 7).toFixed(1) + '" r="4.5" fill="#38BDF8" stroke="#141416" stroke-width="1.2"><title>' + esc(tip) + '</title></circle>';
+      }
+    });
+
+    let xTicks = '';
+    const step = Math.max(1, Math.floor(rows.length / 6));
+    for (let i = 0; i < rows.length; i += step) {
+      xTicks += '<text x="' + xOf(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle" fill="#9A9AA6" font-size="9.5">' + esc(fmtAxisDate(rows[i].date)) + '</text>';
+    }
+
+    return legendHtml([
+      { color: '#F59E0B', label: 'Daily Steps' }, { color: '#22C55E', label: 'Good-Day P90 & ≥7h Prior Sleep' },
+      { color: '#EF4444', label: '<6h Prior Sleep' }, { color: '#38BDF8', label: 'Strength Session' }
+    ]) + '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;display:block;">' + bands + grid + p90Line + ov + bars + xTicks + '</svg>';
+  }
+
+  // 6. Main Generic Detail Chart (Line / Dual-Line / Bar / Zoned / Calories+PK / Symptoms+Lifestyle+PK)
   function renderDetailChart(opts) {
     const rows = opts.rows || [];
     if (!rows.length) return '<div style="padding:32px;text-align:center;color:var(--muted);font-size:12px;">No measured data in this time range.</div>';
 
-    const W = 720, H = 250, padL = 44, padR = 18, padT = 24, padB = 30;
+    const W = 720, H = 260, padL = 46, padR = 18, padT = 26, padB = 32;
     const plotW = W - padL - padR, plotH = H - padT - padB;
     const xOf = function (i) { return rows.length === 1 ? padL + plotW / 2 : padL + (i / (rows.length - 1)) * plotW; };
 
-    const vals1 = rows.map(function (r) { return (r[opts.field] === '' || r[opts.field] == null) ? null : Number(r[opts.field]); });
+    const vals1 = opts.customVals1 || rows.map(function (r) { return (r[opts.field] === '' || r[opts.field] == null) ? null : Number(r[opts.field]); });
     const vals2 = opts.field2 ? rows.map(function (r) { return (r[opts.field2] === '' || r[opts.field2] == null) ? null : Number(r[opts.field2]); }) : [];
     const allNums = vals1.concat(vals2).filter(function (v) { return v !== null && !isNaN(v); });
     if (!allNums.length) return '<div style="padding:32px;text-align:center;color:var(--muted);font-size:12px;">Unavailable in selected range (never interpolated as 0).</div>';
@@ -143,90 +344,228 @@ window.Charts = (function () {
       grid += '<line x1="' + padL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + gy.toFixed(1) + '" stroke="#2F2F36" stroke-dasharray="2,3"/>';
       grid += '<text x="' + (padL - 6) + '" y="' + (gy + 3.5).toFixed(1) + '" text-anchor="end" fill="#9A9AA6" font-size="9.5">' + gv.toFixed(span < 10 ? 1 : 0) + '</text>';
     }
+    if (opts.dayGrid) {
+      rows.forEach(function (r, i) {
+        if (i % Math.max(1, Math.floor(rows.length / 12)) === 0) {
+          grid += '<line x1="' + xOf(i).toFixed(1) + '" y1="' + padT + '" x2="' + xOf(i).toFixed(1) + '" y2="' + (padT + plotH) + '" stroke="#26262B" stroke-width="1"/>';
+        }
+      });
+    }
 
     const overlaySvg = buildOverlaySvg(rows, opts.overlays || {}, xOf, padT, plotH);
+    const pkSvg = (opts.showPk && opts.shots) ? buildBatemanPath(rows, opts.shots, xOf, padT, plotH) : '';
 
     let series = '';
+    const unit1 = opts.unit1 || '';
+    const unit2 = opts.unit2 || '';
     if (opts.kind === 'bar') {
       const bw = Math.max(4, Math.min(20, (plotW / rows.length) * 0.65));
       rows.forEach(function (r, i) {
         const v = vals1[i];
         if (v === null) return;
         const y = yOf(v);
-        const fill = (opts.qualityField && Number(r[opts.qualityField]) >= 70) ? '#A855F7' : (opts.color || '#38BDF8');
-        series += '<rect x="' + (xOf(i) - bw / 2).toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(2, padT + plotH - y).toFixed(1) + '" rx="3" fill="' + fill + '" opacity="0.9"><title>' + esc(r.date + ': ' + v) + '</title></rect>';
+        const tip = fmtDateIN(r.date) + ' · ' + (opts.label1 || opts.field) + ': ' + v + (unit1 ? ' ' + unit1 : '');
+        series += '<rect x="' + (xOf(i) - bw / 2).toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(2, padT + plotH - y).toFixed(1) + '" rx="3" fill="' + (opts.color || '#38BDF8') + '" opacity="0.9"><title>' + esc(tip) + '</title></rect>';
       });
     } else if (opts.kind === 'pk_symptoms') {
-      // Plot Est. Tirzepatide PK curve in background + Symptom dots on foreground
-      const pkVals = rows.map(function (r) { return r.est_tirz_mg_model === '' ? null : Number(r.est_tirz_mg_model); });
-      const pkMax = Math.max.apply(null, pkVals.filter(function (v) { return v !== null; }).concat([5]));
-      let pkPath = '';
-      pkVals.forEach(function (v, i) {
-        if (v === null) return;
-        const py = padT + plotH - (v / pkMax) * (plotH * 0.85);
-        pkPath += (pkPath ? ' L' : 'M') + xOf(i).toFixed(1) + ',' + py.toFixed(1);
-      });
-      if (pkPath) {
-        series += '<path d="' + pkPath + '" fill="none" stroke="#22C55E" stroke-width="2" stroke-dasharray="4,3" opacity="0.8"/>';
+      // Optional lifestyle line behind symptom dots
+      if (opts.field2) {
+        const lVals = vals2.filter(function (v) { return v !== null; });
+        const lMax = Math.max.apply(null, lVals.concat([1]));
+        let ld = '';
+        vals2.forEach(function (v, i) {
+          if (v === null) return;
+          const ly = padT + plotH - (v / lMax) * (plotH * 0.82);
+          ld += (ld ? ' L' : 'M') + xOf(i).toFixed(1) + ',' + ly.toFixed(1);
+        });
+        if (ld) series += '<path d="' + ld + '" fill="none" stroke="' + (opts.color2 || '#A855F7') + '" stroke-width="2" stroke-dasharray="4,2" opacity="0.85"/>';
       }
       rows.forEach(function (r, i) {
         const v = vals1[i];
         if (v === null || v <= 0) return;
         const cy = yOf(v);
-        series += '<circle cx="' + xOf(i).toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="' + Math.min(7, 3 + v * 0.8).toFixed(1) + '" fill="#38BDF8"><title>' + esc(r.date + ': ' + v + ' symptom(s) — ' + (r.top_side_effects || '') + ' | Est. Tirz: ' + (r.est_tirz_mg_model || '—') + ' mg') + '</title></circle>';
+        const tip = fmtDateIN(r.date) + ' · ' + (opts.label1 || 'Symptoms') + ': ' + v + (r.top_side_effects ? ' (' + r.top_side_effects + ')' : '') + (opts.field2 && vals2[i] != null ? ' · ' + opts.label2 + ': ' + vals2[i] + ' ' + unit2 : '');
+        series += '<circle cx="' + xOf(i).toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="' + Math.min(7.5, 3.5 + v * 0.9).toFixed(1) + '" fill="#38BDF8" stroke="#141416" stroke-width="1"><title>' + esc(tip) + '</title></circle>';
       });
     } else {
-      // Line or Dual-Line
-      function drawLine(arr, color) {
+      function drawLine(arr, color, lbl, unit) {
         let d = '', dots = '';
         arr.forEach(function (v, i) {
           if (v === null) return;
           const x = xOf(i).toFixed(1), y = yOf(v).toFixed(1);
           d += (d ? ' L' : 'M') + x + ',' + y;
-          dots += '<circle cx="' + x + '" cy="' + y + '" r="3.4" fill="' + color + '"><title>' + esc(rows[i].date + ': ' + v) + '</title></circle>';
+          const hrSp = opts.showHrSpikes && Number(rows[i].sleep_hr_events_count) > 0 ? (' · ⚡ ' + rows[i].sleep_hr_events_count + ' HR spikes') : '';
+          dots += '<circle cx="' + x + '" cy="' + y + '" r="3.4" fill="' + color + '"><title>' + esc(fmtDateIN(rows[i].date) + ' · ' + lbl + ': ' + v + (unit ? ' ' + unit : '') + hrSp) + '</title></circle>';
         });
         return '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="2.4" stroke-linecap="round"/>' + dots;
       }
-      series += drawLine(vals1, opts.color || '#22C55E');
-      if (opts.field2) series += drawLine(vals2, opts.color2 || '#38BDF8');
+      series += drawLine(vals1, opts.color || '#22C55E', opts.label1 || opts.field, unit1);
+      if (opts.field2) series += drawLine(vals2, opts.color2 || '#F472B6', opts.label2 || opts.field2, unit2);
+      if (opts.showHrSpikes) {
+        rows.forEach(function (r, i) {
+          const cnt = Number(r.sleep_hr_events_count) || 0;
+          if (cnt > 0) {
+            series += '<text x="' + xOf(i).toFixed(1) + '" y="' + (padT + 14) + '" text-anchor="middle" fill="#F472B6" font-size="9" font-weight="700"><title>' + esc(fmtDateIN(r.date) + ': ' + cnt + ' nocturnal HR spikes (' + (r.sleep_hr_events_summary || '') + ')') + '</title>⚡</text>';
+          }
+        });
+      }
     }
 
-    // X-axis date ticks (up to 6 evenly spaced)
     let xTicks = '';
-    const step = Math.max(1, Math.floor(rows.length / 5));
+    const step = Math.max(1, Math.floor(rows.length / 6));
     for (let i = 0; i < rows.length; i += step) {
-      xTicks += '<text x="' + xOf(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle" fill="#9A9AA6" font-size="9.5">' + esc(String(rows[i].date || '').slice(5)) + '</text>';
+      xTicks += '<text x="' + xOf(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle" fill="#9A9AA6" font-size="9.5">' + esc(fmtAxisDate(rows[i].date)) + '</text>';
     }
 
-    return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;display:block;">' + bg + grid + overlaySvg + series + xTicks + '</svg>';
+    const leg = opts.legend ? legendHtml(opts.legend) : '';
+    return leg + '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;display:block;">' + bg + grid + overlaySvg + pkSvg + series + xTicks + '</svg>';
   }
 
-  // 5. GitHub-style Logging Consistency Heatmap
+  // 7. Goal Path SVG Weight-Trajectory Projection Chart
+  function renderGoalTrajectoryChart(weightRows, targetKg, rateKgPerWk) {
+    if (!weightRows.length) return '';
+    const W = 720, H = 230, padL = 48, padR = 24, padT = 22, padB = 30;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const curW = Number(weightRows[weightRows.length - 1].weight_kg);
+    const wksNeeded = Math.max(2, Math.ceil((curW - targetKg) / Math.max(0.25, rateKgPerWk)));
+    const totalPts = weightRows.length + Math.min(24, wksNeeded);
+    const allY = weightRows.map(function (r) { return Number(r.weight_kg); }).concat([targetKg - 1, curW + 1]);
+    const minY = Math.floor(Math.min.apply(null, allY)), maxY = Math.ceil(Math.max.apply(null, allY)), spanY = (maxY - minY) || 1;
+    const xOf = function (i) { return padL + (i / Math.max(1, totalPts - 1)) * plotW; };
+    const yOf = function (v) { return padT + plotH - ((v - minY) / spanY) * plotH; };
+
+    let grid = '';
+    for (let g = 0; g <= 4; g++) {
+      const gv = minY + (spanY * g) / 4;
+      grid += '<line x1="' + padL + '" y1="' + yOf(gv).toFixed(1) + '" x2="' + (W - padR) + '" y2="' + yOf(gv).toFixed(1) + '" stroke="#2F2F36" stroke-dasharray="2,3"/>';
+      grid += '<text x="' + (padL - 6) + '" y="' + (yOf(gv) + 3.5).toFixed(1) + '" text-anchor="end" fill="#9A9AA6" font-size="9.5">' + gv.toFixed(0) + ' kg</text>';
+    }
+
+    let histPath = '', histDots = '';
+    weightRows.forEach(function (r, i) {
+      const x = xOf(i).toFixed(1), y = yOf(Number(r.weight_kg)).toFixed(1);
+      histPath += (i === 0 ? 'M' : 'L') + x + ',' + y + ' ';
+      histDots += '<circle cx="' + x + '" cy="' + y + '" r="3.5" fill="#22C55E"><title>' + fmtDateIN(r.date) + ': ' + r.weight_kg + ' kg</title></circle>';
+    });
+
+    const projSteps = Math.min(24, wksNeeded);
+    let midPath = 'M' + xOf(weightRows.length - 1).toFixed(1) + ',' + yOf(curW).toFixed(1);
+    const upperPts = [], lowerPts = [];
+    for (let k = 0; k <= projSteps; k++) {
+      const idx = weightRows.length - 1 + k;
+      const wMid = Math.max(targetKg, curW - k * rateKgPerWk);
+      const wFast = Math.max(targetKg, curW - k * rateKgPerWk * 1.2);
+      const wSlow = Math.max(targetKg, curW - k * rateKgPerWk * 0.8);
+      if (k > 0) midPath += ' L' + xOf(idx).toFixed(1) + ',' + yOf(wMid).toFixed(1);
+      upperPts.push(xOf(idx).toFixed(1) + ',' + yOf(wSlow).toFixed(1));
+      lowerPts.unshift(xOf(idx).toFixed(1) + ',' + yOf(wFast).toFixed(1));
+    }
+    const bandD = 'M ' + upperPts.join(' L ') + ' L ' + lowerPts.join(' L ') + ' Z';
+    const tgtY = yOf(targetKg);
+
+    return legendHtml([
+      { color: '#22C55E', label: 'Measured Weight (kg)' },
+      { color: '#B85A9E', label: 'Projected Continuation (±20% Band)' }
+    ]) + '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;display:block;">' +
+      grid +
+      '<line x1="' + padL + '" y1="' + tgtY.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + tgtY.toFixed(1) + '" stroke="#38BDF8" stroke-dasharray="4,3"/>' +
+      '<text x="' + (W - padR - 4) + '" y="' + (tgtY - 4).toFixed(1) + '" text-anchor="end" fill="#38BDF8" font-size="9.5" font-weight="700">Target: ' + targetKg.toFixed(1) + ' kg</text>' +
+      '<path d="' + bandD + '" fill="#B85A9E" opacity="0.18"/>' +
+      '<path d="' + midPath + '" fill="none" stroke="#B85A9E" stroke-width="2.2" stroke-dasharray="5,3"/>' +
+      '<path d="' + histPath + '" fill="none" stroke="#22C55E" stroke-width="2.6"/>' + histDots +
+      '<text x="' + padL + '" y="' + (H - 8) + '" fill="#9A9AA6" font-size="9.5">' + esc(fmtAxisDate(weightRows[0].date)) + '</text>' +
+      '<text x="' + xOf(weightRows.length - 1).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle" fill="#F4F4F6" font-size="9.5">Latest</text>' +
+      '<text x="' + (W - padR) + '" y="' + (H - 8) + '" text-anchor="end" fill="#B85A9E" font-size="9.5">+' + projSteps + ' wks</text>' +
+      '</svg>';
+  }
+
+  // 8. Multi-Year Biomarker SVG Chart with Reference Range & What-If Projection Band
+  function renderBiomarkerChart(points, refMin, refMax, projLow, projHigh, unit) {
+    if (!points.length) return '<div style="padding:24px;text-align:center;color:var(--muted);font-size:12px;">No measured lab values in selected year range.</div>';
+    const W = 720, H = 225, padL = 48, padR = 24, padT = 20, padB = 30;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const nums = points.map(function (p) { return p.val; }).concat([refMin, refMax, projLow, projHigh].filter(function (x) { return x != null; }));
+    const minY = Math.min.apply(null, nums) * 0.9, maxY = Math.max.apply(null, nums) * 1.1, spanY = (maxY - minY) || 1;
+    const hasProj = projLow != null && projHigh != null;
+    const totalX = points.length + (hasProj ? 1 : 0);
+    const xOf = function (i) { return totalX <= 1 ? padL + plotW / 2 : padL + (i / (totalX - 1)) * plotW; };
+    const yOf = function (v) { return padT + plotH - ((v - minY) / spanY) * plotH; };
+
+    let refBand = '';
+    if (refMin != null && refMax != null) {
+      const yTop = yOf(refMax), yBot = yOf(refMin);
+      refBand = '<rect x="' + padL + '" y="' + yTop.toFixed(1) + '" width="' + plotW + '" height="' + Math.max(2, yBot - yTop).toFixed(1) + '" fill="#22C55E" opacity="0.12"/>';
+    }
+    let grid = '';
+    for (let g = 0; g <= 4; g++) {
+      const gv = minY + (spanY * g) / 4;
+      grid += '<line x1="' + padL + '" y1="' + yOf(gv).toFixed(1) + '" x2="' + (W - padR) + '" y2="' + yOf(gv).toFixed(1) + '" stroke="#2F2F36" stroke-dasharray="2,3"/>';
+      grid += '<text x="' + (padL - 6) + '" y="' + (yOf(gv) + 3.5).toFixed(1) + '" text-anchor="end" fill="#9A9AA6" font-size="9.5">' + gv.toFixed(spanY < 15 ? 1 : 0) + '</text>';
+    }
+
+    let path = '', dots = '', ticks = '';
+    points.forEach(function (p, i) {
+      const x = xOf(i).toFixed(1), y = yOf(p.val).toFixed(1);
+      path += (i === 0 ? 'M' : 'L') + x + ',' + y + ' ';
+      dots += '<circle cx="' + x + '" cy="' + y + '" r="4.2" fill="#38BDF8"><title>' + fmtDateIN(p.date) + ': ' + p.val + ' ' + esc(unit || '') + '</title></circle>';
+      ticks += '<text x="' + x + '" y="' + (H - 8) + '" text-anchor="middle" fill="#9A9AA6" font-size="9">' + esc(fmtDateIN(p.date).slice(3)) + '</text>';
+    });
+
+    let projSvg = '';
+    if (hasProj) {
+      const last = points[points.length - 1];
+      const lx = xOf(points.length - 1), ly = yOf(last.val), px = xOf(points.length);
+      const pMid = (projLow + projHigh) / 2;
+      projSvg = '<path d="M ' + lx.toFixed(1) + ',' + ly.toFixed(1) + ' L ' + px.toFixed(1) + ',' + yOf(projHigh).toFixed(1) + ' L ' + px.toFixed(1) + ',' + yOf(projLow).toFixed(1) + ' Z" fill="#F59E0B" opacity="0.22"/>' +
+        '<line x1="' + lx.toFixed(1) + '" y1="' + ly.toFixed(1) + '" x2="' + px.toFixed(1) + '" y2="' + yOf(pMid).toFixed(1) + '" stroke="#F59E0B" stroke-width="2" stroke-dasharray="4,3"/>' +
+        '<circle cx="' + px.toFixed(1) + '" cy="' + yOf(pMid).toFixed(1) + '" r="4" fill="#F59E0B"><title>Model Estimate Next Panel: ' + projLow + '–' + projHigh + ' ' + esc(unit || '') + '</title></circle>' +
+        '<text x="' + px.toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle" fill="#F59E0B" font-size="9">Est. Next</text>';
+    }
+
+    return legendHtml([
+      { color: '#38BDF8', label: 'Measured Labs' },
+      { color: '#22C55E', label: 'Reference Range' },
+      { color: '#F59E0B', label: 'What-If Projection Band (Model Estimate)' }
+    ]) + '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;display:block;">' + refBand + grid + '<path d="' + path + '" fill="none" stroke="#38BDF8" stroke-width="2.5"/>' + dots + projSvg + ticks + '</svg>';
+  }
+
+  // 9. 49-Day Heatmap with Date Labels & Per-Domain Breakdown Tooltips
   function renderHeatmap(dailyRows) {
     const slice = dailyRows.slice(-49);
-    const cell = 14, gap = 3;
-    let rects = '';
+    const cell = 16, gap = 3, padT = 16;
+    let rects = '', labels = '';
     slice.forEach(function (r, idx) {
       const col = Math.floor(idx / 7), row = idx % 7;
-      let score = 0;
-      if (r.weight_kg !== '') score++;
-      if (r.calories_kcal !== '') score++;
-      if (r.sleep_hrs !== '') score++;
-      if (r.glapp_mood !== '') score++;
-      if (r.meds_taken !== '' || r.meds_skipped !== '') score++;
+      const logged = [];
+      if (r.weight_kg !== '') logged.push('Weight');
+      if (r.calories_kcal !== '') logged.push('Nutrition');
+      if (r.sleep_hrs !== '') logged.push('Sleep');
+      if (r.glapp_mood !== '') logged.push('Mood');
+      if (r.meds_taken !== '' || r.meds_skipped !== '') logged.push('Meds');
       const fills = ['#26262B', '#14532D', '#166534', '#16A34A', '#22C55E', '#4ADE80'];
-      rects += '<rect x="' + (col * (cell + gap)) + '" y="' + (row * (cell + gap)) + '" width="' + cell + '" height="' + cell + '" rx="3" fill="' + fills[Math.min(5, score)] + '"><title>' + esc(r.date + ': ' + score + '/5 domains logged') + '</title></rect>';
+      const tip = fmtDateIN(r.date) + ' · ' + logged.length + '/5 domains: ' + (logged.length ? logged.join(', ') : 'None');
+      rects += '<rect x="' + (col * (cell + gap)) + '" y="' + (padT + row * (cell + gap)) + '" width="' + cell + '" height="' + cell + '" rx="3" fill="' + fills[Math.min(5, logged.length)] + '"><title>' + esc(tip) + '</title></rect>';
+      if (row === 0) {
+        labels += '<text x="' + (col * (cell + gap)) + '" y="11" fill="#9A9AA6" font-size="8.5">' + esc(fmtAxisDate(r.date)) + '</text>';
+      }
     });
-    const w = Math.ceil(slice.length / 7) * (cell + gap);
-    return '<svg viewBox="0 0 ' + Math.max(120, w) + ' ' + (7 * (cell + gap)) + '" style="width:100%;max-width:300px;height:auto;">' + rects + '</svg>';
+    const w = Math.ceil(slice.length / 7) * (cell + gap) + 10;
+    return '<svg viewBox="0 0 ' + Math.max(150, w) + ' ' + (padT + 7 * (cell + gap)) + '" style="width:100%;max-width:360px;height:auto;">' + labels + rects + '</svg>';
   }
 
   return {
+    fmtDateIN: fmtDateIN,
+    fmtAxisDate: fmtAxisDate,
+    fmtHrsMin: fmtHrsMin,
     renderReadinessRing: renderReadinessRing,
     renderMiniSpark: renderMiniSpark,
     renderMiniBars: renderMiniBars,
     renderMiniDots: renderMiniDots,
+    renderStackedSleepChart: renderStackedSleepChart,
+    renderActivityCorrelationChart: renderActivityCorrelationChart,
     renderDetailChart: renderDetailChart,
+    renderGoalTrajectoryChart: renderGoalTrajectoryChart,
+    renderBiomarkerChart: renderBiomarkerChart,
     renderHeatmap: renderHeatmap
   };
 })();
