@@ -58,18 +58,21 @@ def main():
             sys.exit(1)
     print("[PASS] Secret scan OK: Zero hardcoded Spreadsheet IDs in apps-script/*.{gs,html}")
 
-    for fn in ['Engine.gs', 'WebApp.gs']:
+    for fn in ['Engine.gs', 'WebApp.gs', 'AISynthesis.gs']:
         with open(os.path.join(ROOT, 'apps-script', fn)) as f:
             txt = f.read()
         assert "readSheetObjects_(ssMJ, 'Smoking_Log')" not in txt, f"{fn} must not read Smoking_Log!"
-        if fn == 'WebApp.gs':
-            assert "Smoking_Log" not in txt and "getPrivateSmokingAnalytics" not in txt, "WebApp.gs must stay 100% smoking-free!"
-    print("[PASS] Privacy scan OK: Engine.gs & WebApp.gs do not read Smoking_Log")
+        if fn in ('WebApp.gs', 'AISynthesis.gs'):
+            assert "Smoking_Log" not in txt and "getPrivateSmokingAnalytics" not in txt, f"{fn} must stay 100% smoking-free!"
+        if fn == 'AISynthesis.gs':
+            assert 'DISCLAIMER' in txt and 'physician' in txt.lower(), "AISynthesis.gs must include clinical disclaimer"
+    print("[PASS] Privacy scan OK: Engine.gs, WebApp.gs & AISynthesis.gs do not read Smoking_Log")
 
     with open(os.path.join(ROOT, 'apps-script', 'Charts.html')) as f:
         charts_txt = f.read()
     assert 'window.Charts' in charts_txt and 'fmtDateIN' in charts_txt, "Charts.html must expose window.Charts & fmtDateIN"
-    print("[PASS] Charts.html exposes window.Charts & DD-MM-YYYY localization")
+    assert 'dualAxis' in charts_txt and 'alignTicksToData' in charts_txt, "Charts.html must support dualAxis & alignTicksToData"
+    print("[PASS] Charts.html exposes window.Charts, DD-MM-YYYY, dualAxis & alignTicksToData")
 
     with open(os.path.join(ROOT, 'apps-script', 'Index.html')) as f:
         idx_txt = f.read()
@@ -83,7 +86,7 @@ def main():
     assert 'maxlength="64"' in idx_txt, "Index.html PIN input must support maxlength=64"
     print("[PASS] Index.html OK: Lock-screen-first #pinGate, Charts before App, maxlength=64, discreet markup")
 
-    print("\nALL V2.2 LOCAL VALIDATIONS PASSED!")
+    print("\nALL PHASE 1 + PHASE 2 + V2.2 + PHASE 3 LOCAL VALIDATIONS PASSED!")
 
 if __name__ == '__main__':
     main()

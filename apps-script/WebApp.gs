@@ -86,6 +86,7 @@ function getDashboardPayload() {
   const cleanDaily = sanitizeForRpc_(daily, tz);
   const coverage = computeDomainCoverage_(cleanDaily);
   const habitSummary = computeHabitWindowSummary_(cleanDaily);
+  const aiSynthesis = getCachedAiSynthesis_(ssStore, cfg);
 
   return sanitizeForRpc_({
     meta: {
@@ -104,11 +105,20 @@ function getDashboardPayload() {
     qaLog: qaLog,
     briefingPacket: briefingPkt,
     aiOutputs: aiOutputs,
+    aiSynthesis: aiSynthesis,
     shots: shots,
     symptomsEvents: symptomsEvents,
     coverage: coverage,
     habitSummary: habitSummary
   }, tz);
+}
+
+/**
+ * Manual "Regenerate Insight" RPC endpoint (caches result in AI_Insights_Cache).
+ */
+function regenerateAiSynthesis(targetKg) {
+  const cfg = getConfig_();
+  return sanitizeForRpc_(generateHolisticClinicalSynthesis({ targetKg: targetKg }), cfg.TIMEZONE);
 }
 
 function getDoctorBriefPayload() {
