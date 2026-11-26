@@ -66,7 +66,8 @@ def main():
             assert "Smoking_Log" not in txt and "getPrivateSmokingAnalytics" not in txt, f"{fn} must stay 100% smoking-free!"
         if fn == 'AISynthesis.gs':
             assert 'DISCLAIMER' in txt and 'physician' in txt.lower(), "AISynthesis.gs must include clinical disclaimer"
-    print("[PASS] Privacy scan OK: Engine.gs, WebApp.gs & AISynthesis.gs do not read Smoking_Log")
+            assert 'gemini-3.8-flash' in txt and 'gemini-3.5-flash-lite' in txt, "AISynthesis.gs must configure gemini-3.8-flash -> gemini-3.5-flash-lite fallback"
+    print("[PASS] Privacy & AI model scan OK: Engine.gs, WebApp.gs & AISynthesis.gs (gemini-3.8-flash -> gemini-3.5-flash-lite)")
 
     with open(os.path.join(ROOT, 'apps-script', 'Charts.html')) as f:
         charts_txt = f.read()
