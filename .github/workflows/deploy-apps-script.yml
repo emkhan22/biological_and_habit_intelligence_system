@@ -3,6 +3,7 @@ name: Deploy Apps Script
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -16,13 +17,20 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Validate Apps Script contracts and syntax
+        run: python3 scripts/validate_contracts.py
+
       - name: Push and deploy to Apps Script
         env:
           CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
           SCRIPT_ID: ${{ secrets.SCRIPT_ID }}
           DEPLOYMENT_ID: ${{ secrets.DEPLOYMENT_ID }}
         run: |
-          echo "$CLASPRC_JSON" > ~/.clasprc.json
-          printf '{"scriptId":"%s"}\n' "$SCRIPT_ID" > .clasp.json
-          npx @google/clasp push --force
-          npx @google/clasp deploy -i "$DEPLOYMENT_ID"
+          printf '%s\n' "$CLASPRC_JSON" > ~/.clasprc.json
+          chmod 600 ~/.clasprc.json
+          jq -n \
+            --arg scriptId "$SCRIPT_ID" \
+            --arg rootDir "apps-script" \
+            '{scriptId: $scriptId, rootDir: $rootDir}' > .clasp.json
+          npx --yes @google/clasp push --force
+          npx --yes @google/clasp deploy -i "$DEPLOYMENT_ID" -d "Auto-deploy from main (${GITHUB_SHA::7})"

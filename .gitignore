@@ -221,3 +221,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Google Apps Script (clasp) credentials and local project config
+.clasprc.json
+.clasp.json
