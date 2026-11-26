@@ -290,18 +290,20 @@
           '<div class="coach-drawer" id="nd-' + idx + '"><strong>Your Data:</strong> ' + esc(n.dataWhy) + '<br/><strong>Evidence:</strong> ' + esc(n.evidence) + '</div></div>';
       }).join('') + '</div></div>';
 
-    // Inside Your Body (Gemini)
-    const insideAi = (d.aiOutputs || []).slice().reverse().find(function (r) { return r.report_type === 'INSIDE_YOUR_BODY'; });
-    const aiIsFresh = insideAi && cleanDateStr_(insideAi.period_key) === cleanDateStr_(latest.date);
-    html += '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;">' +
-      '<div><h2 class="card-title">Inside Your Body</h2><p class="card-sub">Multi-therapy physiological synthesis</p></div>' +
-      (aiIsFresh ? provBadge('AI') : '<span class="prov prov-model">◐ Pending Today\'s Brief</span>') + '</div>';
-    if (insideAi) {
-      html += '<div style="font-weight:700;font-size:13.5px;margin-bottom:5px;">' + esc(insideAi.headline) + '</div>' +
-        '<p style="font-size:12.5px;color:var(--muted);margin:0 0 8px 0;">' + esc(insideAi.body_markdown) + '</p>' +
-        '<div style="font-size:11px;color:var(--muted);">Updated: ' + esc(insideAi.generated_at) + ' · ' + esc(insideAi.citations || '') + '</div>';
+    // Phase 3: Holistic Health Brief & Cross-Domain Pattern Discoveries
+    const syn = d.aiSynthesis || null;
+    html += '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">' +
+      '<div><h2 class="card-title">Holistic Health Brief</h2><p class="card-sub">Cross-domain clinical synthesis · ' + esc(syn ? syn.engine : 'Cached') + '</p></div>' +
+      '<div style="display:flex;align-items:center;gap:6px;">' + provBadge('AI') + '<button class="btn-ghost" data-regen-ai="home" style="padding:4px 9px;font-size:11px;">↻ Regenerate</button></div></div>';
+    if (syn && syn.holisticBrief) {
+      html += '<div style="font-weight:700;font-size:13.5px;margin-bottom:5px;">' + esc(syn.holisticBrief.headline) + '</div>' +
+        '<p style="font-size:12.5px;color:var(--muted);margin:0 0 8px 0;">' + esc(syn.holisticBrief.summary) + '</p>';
+      (syn.crossDomainPatterns || []).slice(0, 3).forEach(function (pt) {
+        html += '<div class="alert-row info"><strong>' + esc(pt.domainPair) + ' (' + esc(pt.label) + '):</strong> ' + esc(pt.insight) + '</div>';
+      });
+      html += '<div style="font-size:10.5px;color:var(--muted);margin-top:8px;">Updated: ' + esc(syn.generatedAt || '') + ' · <em>' + esc(syn.disclaimer || '') + '</em></div>';
     } else {
-      html += '<p class="card-sub">Phase 3 Gemini Scheduled Action will populate your daily biological narrative here.</p>';
+      html += '<p class="card-sub">Tap <strong>↻ Regenerate</strong> to generate your holistic clinical brief.</p>';
     }
     html += '</div>';
 
@@ -329,6 +331,7 @@
     el.querySelectorAll('[data-fbox]').forEach(function (btn) {
       btn.addEventListener('click', function () { document.getElementById(btn.dataset.fbox).classList.toggle('open'); });
     });
+    wireRegenButtons_(el);
   }
 
   // ==================== TAB 2: PROGRESS ====================
@@ -340,14 +343,15 @@
       { id: 'fat_lean', cat: 'bodycomp', catLabel: 'Body Comp', color: '#22C55E', title: 'Fat vs. Lean Mass (Fitdays BIA)',
         val: latestBC.fat_mass_kg ? (latestBC.fat_mass_kg + ' kg fat · ' + latestBC.muscle_mass_kg + ' kg muscle') : '—',
         sub: 'Skeletal muscle ' + fmt(latestBC.skeletal_muscle_pct, '%') + ' · Visceral ' + fmt(latestBC.visceral_fat),
-        prov: 'Measured', mini: 'spark', field: 'fat_mass_kg', field2: 'muscle_mass_kg', color2: '#38BDF8', label1: 'Fat Mass', label2: 'Muscle Mass', unit1: 'kg', unit2: 'kg', kind: 'line', domainCov: 'bodyComp', allowedOverlays: ['jabs', 'period'],
+        prov: 'Measured', mini: 'spark', field: 'fat_mass_kg', field2: 'muscle_mass_kg', color2: '#38BDF8', label1: 'Fat Mass', label2: 'Muscle Mass', unit1: 'kg', unit2: 'kg', kind: 'line', alignTicksToData: true, domainCov: 'bodyComp', allowedOverlays: ['jabs', 'period'],
         legend: [{ color: '#22C55E', label: 'Fat Mass (kg)' }, { color: '#38BDF8', label: 'Muscle Mass (kg)' }],
-        about: 'Fitdays BIA estimates are hydration- and cycle-sensitive. Only Jab days & Period overlays apply to weekly weigh-in cadence.' },
+        about: 'Fitdays BIA estimates are hydration- and cycle-sensitive. X-axis ticks align directly to actual Jab / weigh-in dates.' },
       { id: 'bone_prot', cat: 'bodycomp', catLabel: 'Body Comp', color: '#22C55E', title: 'Bone Health & Protein Weight',
-        val: fmt(latestBC.bone_mass_kg, 'kg bone') + ' · ' + fmt(latestBC.protein_mass_kg, 'kg prot'),
-        sub: 'Structural mass tracking during weight loss',
-        prov: 'Measured', mini: 'spark', field: 'protein_mass_kg', label1: 'Protein Mass', unit1: 'kg', kind: 'line', domainCov: 'bodyComp', allowedOverlays: ['jabs', 'period'],
-        about: 'Monitors Fitdays-estimated bone mass and body protein mass alongside protein intake and strength training.' },
+        val: fmt(latestBC.protein_mass_kg, 'kg prot') + ' · ' + fmt(latestBC.bone_mass_kg, 'kg bone'),
+        sub: 'Dual-axis structural mass tracking (8–10 kg Protein | 2.5–4 kg Bone)',
+        prov: 'Measured', mini: 'spark', field: 'protein_mass_kg', field2: 'bone_mass_kg', color2: '#38BDF8', label1: 'Body Protein Mass', label2: 'Bone Mass', unit1: 'kg', unit2: 'kg', kind: 'line', dualAxis: true, minY: 8.0, maxY: 10.0, minY2: 2.5, maxY2: 4.0, alignTicksToData: true, domainCov: 'bodyComp', allowedOverlays: ['jabs', 'period'],
+        legend: [{ color: '#22C55E', label: 'Body Protein Mass (kg, Left Axis)' }, { color: '#38BDF8', label: 'Bone Mass (kg, Right Axis)' }],
+        about: 'Dual Y-axis chart prevents clipping: Body Protein Mass (8.0–10.0 kg) on left axis, Bone Mass (2.5–4.0 kg) on right axis, aligned to Jab / weigh-in dates.' },
       { id: 'goal_sim', cat: 'bodycomp', catLabel: 'Body Comp', color: '#22C55E', title: 'Goal Path Simulator & Loss Rate',
         val: 'SVG Trajectory + TDEE Model', sub: 'Projected curve, ±20% band & metabolic adaptation insights',
         prov: 'Model', mini: 'spark', field: 'weight_kg', kind: 'goal_sim', noRangeBar: true, domainCov: 'weight',
@@ -505,12 +509,29 @@
       const wRows = (d.daily || []).filter(function (r) { return r.weight_kg !== '' && r.weight_kg != null; });
       const curW = wRows.length ? Number(wRows[wRows.length - 1].weight_kg) : 102.7;
       const initTgt = Math.max(70, Math.round(curW - 8));
+      const syn = d.aiSynthesis || {};
+      const adv = syn.goalPathAdvisor || null;
       body = '<div class="card">' +
         '<div id="gs-svg-box"></div>' +
         '<div class="slider-row"><div style="display:flex;justify-content:space-between;font-size:12px;"><span>Target Weight</span><strong id="gs-val">' + initTgt.toFixed(1) + ' kg</strong></div>' +
         '<input id="gs-range" type="range" min="65" max="' + Math.floor(curW - 1) + '" step="0.5" value="' + initTgt + '"/></div>' +
         '<div id="gs-out" style="font-size:12px;color:var(--muted);"></div>' +
-        '<div id="gs-tdee" class="alert-row info" style="margin-top:10px;"></div></div>';
+        '<div id="gs-tdee" class="alert-row info" style="margin-top:10px;"></div></div>' +
+        '<div class="card card-plum">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">' +
+            '<div><h3 class="card-title">Metabolic Adaptation &amp; Plateau-Breaking Advisor</h3><p class="card-sub">' + esc(syn.engine || 'Phase 3 Synthesis') + '</p></div>' +
+            '<div style="display:flex;align-items:center;gap:6px;">' + provBadge('AI') + '<button class="btn-ghost" data-regen-ai="goal" style="padding:4px 9px;font-size:11px;">↻ Refresh for Target</button></div>' +
+          '</div>' +
+          (adv ? (
+            '<div style="font-weight:700;font-size:13px;margin-bottom:4px;">' + esc(adv.headline) + '</div>' +
+            '<p style="font-size:12px;color:var(--muted);margin:0 0 6px 0;">' + esc(adv.tdeeSummary) + '</p>' +
+            '<div style="font-size:11.5px;color:var(--amber);margin-bottom:8px;"><strong>' + esc(adv.plateauWindow || '') + '</strong></div>' +
+            '<ul style="margin:0;padding-left:18px;font-size:12px;color:var(--fg);">' +
+              (adv.adjustments || []).map(function (a) { return '<li style="margin-bottom:4px;">' + esc(a) + '</li>'; }).join('') +
+            '</ul>' +
+            '<div style="font-size:10.5px;color:var(--muted);margin-top:8px;">Updated: ' + esc(syn.generatedAt || '') + ' · <em>' + esc(syn.disclaimer || '') + '</em></div>'
+          ) : '<p class="card-sub">Tap <strong>↻ Refresh for Target</strong> to generate your metabolic adaptation plan.</p>') +
+        '</div>';
     } else if (m.kind === 'liver_sim') {
       const lw = getLatestWeight_(d.daily || []);
       const pct = lw ? (((108.3 - lw.w) / 108.3) * 100) : 5.17;
@@ -655,6 +676,7 @@
       body = '<div class="card">' + safeChart_('renderDetailChart', [{
         rows: rows, field: m.field, field2: m.field2, label1: m.label1, label2: m.label2, unit1: m.unit1, unit2: m.unit2,
         color: m.color, color2: m.color2, kind: m.kind, minY: m.minY, maxY: m.maxY,
+        dualAxis: m.dualAxis, minY2: m.minY2, maxY2: m.maxY2, alignTicksToData: m.alignTicksToData,
         showPk: m.showPk, shots: shots, dayGrid: m.dayGrid, showHrSpikes: m.showHrSpikes,
         legend: m.legend, overlays: STATE.overlays
       }], '') + overlayTrayHtml_(m.allowedOverlays) + '</div>';
@@ -701,6 +723,7 @@
     box.querySelectorAll('[data-medf]').forEach(function (b) { b.addEventListener('click', function () { STATE.medFilter = b.dataset.medf; renderDetailScreen(); }); });
     box.querySelectorAll('[data-ltab]').forEach(function (b) { b.addEventListener('click', function () { STATE.labTab = b.dataset.ltab; renderDetailScreen(); }); });
     box.querySelectorAll('[data-lyr]').forEach(function (b) { b.addEventListener('click', function () { STATE.labYearCutoff = b.dataset.lyr; renderDetailScreen(); }); });
+    wireRegenButtons_(box);
 
     // Wire Goal Path SVG + TDEE Metabolic Adaptation Simulator
     const gs = document.getElementById('gs-range');
@@ -763,7 +786,11 @@
       tileHtml_('Nutrition Avg', 'Clean ' + fmt(wk.clean_eating_score, '/100'), 'P ' + fmt(wk.avg_protein_g, 'g') + ' · C ' + fmt(wk.avg_carbs_g, 'g') + carbFlag + ' · F ' + fmt(wk.avg_fat_g, 'g') + fatFlag + ' · Fib ' + fmt(wk.avg_fiber_g, 'g'), '#F59E0B') +
       tileHtml_('Activity & Sleep', fmt(wk.avg_steps, 'steps'), fmtHrsMin_(wk.avg_sleep_hrs) + ' · REM ' + fmt(wk.avg_rem_mins, 'm') + ' · ' + (wk.strength_sessions || 0) + ' strength', '#A855F7') +
       tileHtml_('Dose Response', fmt(wk.dose_mg, 'mg'), 'Hunger ' + fmt(wk.avg_hunger) + ' · Noise ' + fmt(wk.avg_food_noise) + ' · ' + (wk.total_side_effects || 0) + ' symptoms', '#F472B6') +
-    '</div><div class="alert-row info" style="margin-top:10px;"><strong>Weekly Habit Review vs. Prior Week:</strong> ' + esc(wk.habit_delta_vs_prev_week || 'Baseline week') + '</div></div>';
+    '</div><div class="alert-row info" style="margin-top:10px;"><strong>Weekly Habit Review vs. Prior Week:</strong> ' + esc(wk.habit_delta_vs_prev_week || 'Baseline week') + '</div>';
+    if (d.aiSynthesis && d.aiSynthesis.weeklyReportNarrative) {
+      html += '<div class="alert-row" style="margin-top:8px;border-left-color:var(--plum);"><strong>Holistic Weekly Synthesis (' + esc(d.aiSynthesis.engine || 'AI') + '):</strong> ' + esc(d.aiSynthesis.weeklyReportNarrative) + '</div>';
+    }
+    html += '</div>';
 
     // Upgraded Monthly Clinical & Habit Summaries (Target Attainment Badges + Logged-Day Denominators)
     html += '<div class="card no-print"><h2 class="card-title">Monthly Clinical &amp; Habit Summaries</h2><p class="card-sub" style="margin-bottom:8px;">Includes target attainment (Protein ≥100g, Fiber ≥25g, Steps ≥6,000, Sleep ≥7h) &amp; logged-day coverage</p>' +
@@ -815,26 +842,63 @@
 
   // ==================== TAB 4: WISDOM ====================
   function renderWisdom() {
+    const syn = STATE.data.aiSynthesis || null;
     const aiRows = (STATE.data.aiOutputs || []).slice().reverse();
     const starters = [
       'Compare my Day 0–2 belching & reflux pattern against tirzepatide clinical trials — expected or worth flagging?',
       'Given my Sept 2026 HbA1c 6.2%, insulin 34, and Grade 1 fatty liver, what nutrition tweaks matter most this month?',
       'When is the ideal timing for my post-IV-iron ferritin and post-Thyronorm TSH follow-up labs?'
     ];
-    let html = '<div class="card card-plum"><div style="display:flex;justify-content:space-between;align-items:center;"><div><h2 class="card-title">Personal Health Wisdom</h2><p class="card-sub">Powered by your Google AI Pro Gemini Tasks &amp; Gem ($0 extra)</p></div>' + provBadge('AI') + '</div>' +
-      '<div style="margin-top:10px;display:flex;flex-direction:column;gap:7px;">' + starters.map(function (q) {
-        return '<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:9px 11px;font-size:12px;">✦ ' + esc(q) + '</div>';
+    let html = '<div class="card card-plum"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">' +
+      '<div><h2 class="card-title">Phase 3 Cross-Domain Pattern Library</h2><p class="card-sub">' + esc(syn ? (syn.engine + ' · ' + syn.generatedAt) : 'Cached clinical synthesis') + '</p></div>' +
+      '<div style="display:flex;align-items:center;gap:6px;">' + provBadge('AI') + '<button class="btn-ghost" data-regen-ai="wisdom" style="padding:4px 9px;font-size:11px;">↻ Regenerate Insight</button></div></div>';
+    if (syn && syn.crossDomainPatterns) {
+      html += syn.crossDomainPatterns.map(function (pt) {
+        return '<div class="alert-row info" style="margin-top:8px;"><strong>' + esc(pt.domainPair) + ' (' + esc(pt.label) + '):</strong> ' + esc(pt.insight) + '</div>';
+      }).join('') + '<div style="font-size:10.5px;color:var(--muted);margin-top:8px;"><em>' + esc(syn.disclaimer || '') + '</em></div>';
+    }
+    html += '</div><div class="card"><h2 class="card-title">Personal Health Wisdom Starters</h2>' +
+      '<div style="margin-top:8px;display:flex;flex-direction:column;gap:7px;">' + starters.map(function (q) {
+        return '<div style="background:var(--card-2);border:1px solid var(--border);border-radius:10px;padding:9px 11px;font-size:12px;">✦ ' + esc(q) + '</div>';
       }).join('') + '</div></div>' +
-      '<div class="card"><h2 class="card-title">Saved AI Briefs &amp; Symptom Peer-Expectedness</h2>' +
+      '<div class="card"><h2 class="card-title">Saved AI Briefs</h2>' +
       (aiRows.length ? aiRows.map(function (r) {
         return '<div style="padding:10px 0;border-bottom:1px solid var(--border);"><div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);"><span>' + esc(r.report_type) + ' · ' + esc(fmtDateIN_(r.period_key)) + '</span><span>' + esc(r.generated_at) + '</span></div>' +
           '<div style="font-weight:700;margin:3px 0;">' + esc(r.headline) + '</div><div style="font-size:12.5px;color:var(--muted);">' + esc(r.body_markdown) + '</div><div style="font-size:11px;color:var(--plum);margin-top:4px;">' + esc(r.citations || '') + '</div></div>';
-      }).join('') : '<p class="card-sub">Phase 3 Gemini Scheduled Actions will populate briefs here.</p>') + '</div>' +
+      }).join('') : '<p class="card-sub">No archived briefs yet.</p>') + '</div>' +
       '<div class="card" style="border-style:dashed;opacity:0.78;"><div style="display:flex;justify-content:space-between;align-items:center;"><h2 class="card-title">GLP-1 News &amp; Research Pulse</h2><span class="prov">Planned · V2</span></div><p class="card-sub" style="margin-top:4px;">Weekly curated feed of new GLP-1 trials, regulatory updates, and metabolic research trends.</p></div>';
-    document.getElementById('view-wisdom').innerHTML = html;
+    const el = document.getElementById('view-wisdom');
+    el.innerHTML = html;
+    wireRegenButtons_(el);
   }
 
   // ==================== HELPERS ====================
+  function wireRegenButtons_(rootEl) {
+    if (!rootEl) return;
+    rootEl.querySelectorAll('[data-regen-ai]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const gsEl = document.getElementById('gs-range');
+        const targetKg = gsEl ? Number(gsEl.value) : 95;
+        btn.disabled = true;
+        btn.textContent = 'Synthesizing…';
+        google.script.run
+          .withSuccessHandler(function (newSyn) {
+            if (STATE.data) STATE.data.aiSynthesis = newSyn;
+            if (document.getElementById('detail-overlay').classList.contains('open')) {
+              renderDetailScreen();
+            } else {
+              safeRenderCurrentTab_();
+            }
+          })
+          .withFailureHandler(function (err) {
+            btn.disabled = false;
+            btn.textContent = '↻ Retry';
+            if (window.console && console.error) console.error('AI regen failed:', err);
+          })
+          .regenerateAiSynthesis(targetKg);
+      });
+    });
+  }
   function tileHtml_(k, v, d, accent) {
     return '<div class="stat-tile"><div class="stat-k"><span>' + esc(k) + '</span><span style="color:' + accent + ';">●</span></div><div class="stat-v">' + v + '</div><div class="stat-d">' + esc(d) + '</div></div>';
   }

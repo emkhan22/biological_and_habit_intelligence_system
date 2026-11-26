@@ -311,24 +311,33 @@ window.Charts = (function () {
     ]) + '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;display:block;">' + bands + grid + p90Line + ov + bars + xTicks + '</svg>';
   }
 
-  // 6. Main Generic Detail Chart (Line / Dual-Line / Bar / Zoned / Calories+PK / Symptoms+Lifestyle+PK)
+  // 6. Main Generic Detail Chart (Line / Dual-Line / Dual-Y-Axis / Bar / Zoned / Calories+PK / Symptoms+Lifestyle+PK)
   function renderDetailChart(opts) {
     const rows = opts.rows || [];
     if (!rows.length) return '<div style="padding:32px;text-align:center;color:var(--muted);font-size:12px;">No measured data in this time range.</div>';
 
-    const W = 720, H = 260, padL = 46, padR = 18, padT = 26, padB = 32;
+    const isDual = !!(opts.dualAxis && opts.field2);
+    const W = 720, H = 260, padL = 46, padR = isDual ? 46 : 18, padT = 26, padB = 32;
     const plotW = W - padL - padR, plotH = H - padT - padB;
     const xOf = function (i) { return rows.length === 1 ? padL + plotW / 2 : padL + (i / (rows.length - 1)) * plotW; };
 
     const vals1 = opts.customVals1 || rows.map(function (r) { return (r[opts.field] === '' || r[opts.field] == null) ? null : Number(r[opts.field]); });
     const vals2 = opts.field2 ? rows.map(function (r) { return (r[opts.field2] === '' || r[opts.field2] == null) ? null : Number(r[opts.field2]); }) : [];
-    const allNums = vals1.concat(vals2).filter(function (v) { return v !== null && !isNaN(v); });
+    const nums1 = vals1.filter(function (v) { return v !== null && !isNaN(v); });
+    const nums2 = vals2.filter(function (v) { return v !== null && !isNaN(v); });
+    const allNums = nums1.concat(nums2);
     if (!allNums.length) return '<div style="padding:32px;text-align:center;color:var(--muted);font-size:12px;">Unavailable in selected range (never interpolated as 0).</div>';
 
-    const minV = opts.minY != null ? opts.minY : Math.floor(Math.min.apply(null, allNums) * 0.94);
-    const maxV = opts.maxY != null ? opts.maxY : Math.ceil(Math.max.apply(null, allNums) * 1.06);
+    const base1 = isDual ? nums1 : allNums;
+    const minV = opts.minY != null ? opts.minY : Math.floor(Math.min.apply(null, base1) * 0.94);
+    const maxV = opts.maxY != null ? opts.maxY : Math.ceil(Math.max.apply(null, base1) * 1.06);
     const span = (maxV - minV) || 1;
     const yOf = function (v) { return padT + plotH - ((v - minV) / span) * plotH; };
+
+    const minV2 = isDual ? (opts.minY2 != null ? opts.minY2 : Math.floor(Math.min.apply(null, nums2.length ? nums2 : [0]) * 0.9)) : minV;
+    const maxV2 = isDual ? (opts.maxY2 != null ? opts.maxY2 : Math.ceil(Math.max.apply(null, nums2.length ? nums2 : [5]) * 1.1)) : maxV;
+    const span2 = (maxV2 - minV2) || 1;
+    const yOf2 = function (v) { return padT + plotH - ((v - minV2) / span2) * plotH; };
 
     let bg = '';
     if (opts.kind === 'zoned') {
@@ -342,7 +351,11 @@ window.Charts = (function () {
       const gv = minV + (span * g) / 4;
       const gy = yOf(gv);
       grid += '<line x1="' + padL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + gy.toFixed(1) + '" stroke="#2F2F36" stroke-dasharray="2,3"/>';
-      grid += '<text x="' + (padL - 6) + '" y="' + (gy + 3.5).toFixed(1) + '" text-anchor="end" fill="#9A9AA6" font-size="9.5">' + gv.toFixed(span < 10 ? 1 : 0) + '</text>';
+      grid += '<text x="' + (padL - 6) + '" y="' + (gy + 3.5).toFixed(1) + '" text-anchor="end" fill="' + (isDual ? (opts.color || '#22C55E') : '#9A9AA6') + '" font-size="9.5">' + gv.toFixed(span < 10 ? 1 : 0) + '</text>';
+      if (isDual) {
+        const gv2 = minV2 + (span2 * g) / 4;
+        grid += '<text x="' + (W - padR + 6) + '" y="' + (gy + 3.5).toFixed(1) + '" text-anchor="start" fill="' + (opts.color2 || '#38BDF8') + '" font-size="9.5">' + gv2.toFixed(span2 < 10 ? 1 : 0) + '</text>';
+      }
     }
     if (opts.dayGrid) {
       rows.forEach(function (r, i) {
@@ -368,7 +381,6 @@ window.Charts = (function () {
         series += '<rect x="' + (xOf(i) - bw / 2).toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(2, padT + plotH - y).toFixed(1) + '" rx="3" fill="' + (opts.color || '#38BDF8') + '" opacity="0.9"><title>' + esc(tip) + '</title></rect>';
       });
     } else if (opts.kind === 'pk_symptoms') {
-      // Optional lifestyle line behind symptom dots
       if (opts.field2) {
         const lVals = vals2.filter(function (v) { return v !== null; });
         const lMax = Math.max.apply(null, lVals.concat([1]));
@@ -388,19 +400,22 @@ window.Charts = (function () {
         series += '<circle cx="' + xOf(i).toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="' + Math.min(7.5, 3.5 + v * 0.9).toFixed(1) + '" fill="#38BDF8" stroke="#141416" stroke-width="1"><title>' + esc(tip) + '</title></circle>';
       });
     } else {
-      function drawLine(arr, color, lbl, unit) {
+      function drawLine(arr, yMapper, color, lbl, unit) {
         let d = '', dots = '';
         arr.forEach(function (v, i) {
           if (v === null) return;
-          const x = xOf(i).toFixed(1), y = yOf(v).toFixed(1);
+          const x = xOf(i).toFixed(1), y = yMapper(v).toFixed(1);
           d += (d ? ' L' : 'M') + x + ',' + y;
           const hrSp = opts.showHrSpikes && Number(rows[i].sleep_hr_events_count) > 0 ? (' · ⚡ ' + rows[i].sleep_hr_events_count + ' HR spikes') : '';
-          dots += '<circle cx="' + x + '" cy="' + y + '" r="3.4" fill="' + color + '"><title>' + esc(fmtDateIN(rows[i].date) + ' · ' + lbl + ': ' + v + (unit ? ' ' + unit : '') + hrSp) + '</title></circle>';
+          const dualTip = isDual
+            ? (fmtDateIN(rows[i].date) + ' · ' + (opts.label1 || opts.field) + ': ' + (vals1[i] != null ? vals1[i] + ' ' + unit1 : '—') + ' · ' + (opts.label2 || opts.field2) + ': ' + (vals2[i] != null ? vals2[i] + ' ' + unit2 : '—'))
+            : (fmtDateIN(rows[i].date) + ' · ' + lbl + ': ' + v + (unit ? ' ' + unit : '') + hrSp);
+          dots += '<circle cx="' + x + '" cy="' + y + '" r="3.8" fill="' + color + '"><title>' + esc(dualTip) + '</title></circle>';
         });
         return '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="2.4" stroke-linecap="round"/>' + dots;
       }
-      series += drawLine(vals1, opts.color || '#22C55E', opts.label1 || opts.field, unit1);
-      if (opts.field2) series += drawLine(vals2, opts.color2 || '#F472B6', opts.label2 || opts.field2, unit2);
+      series += drawLine(vals1, yOf, opts.color || '#22C55E', opts.label1 || opts.field, unit1);
+      if (opts.field2) series += drawLine(vals2, isDual ? yOf2 : yOf, opts.color2 || '#F472B6', opts.label2 || opts.field2, unit2);
       if (opts.showHrSpikes) {
         rows.forEach(function (r, i) {
           const cnt = Number(r.sleep_hr_events_count) || 0;
@@ -411,10 +426,24 @@ window.Charts = (function () {
       }
     }
 
+    // X-axis date ticks: align directly to actual Jab / weigh-in observation dates when alignTicksToData is set
     let xTicks = '';
-    const step = Math.max(1, Math.floor(rows.length / 6));
-    for (let i = 0; i < rows.length; i += step) {
-      xTicks += '<text x="' + xOf(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle" fill="#9A9AA6" font-size="9.5">' + esc(fmtAxisDate(rows[i].date)) + '</text>';
+    if (opts.alignTicksToData) {
+      let lastX = -999;
+      rows.forEach(function (r, i) {
+        const hasObs = vals1[i] !== null || (vals2.length && vals2[i] !== null);
+        const isJab = Number(r.days_since_shot) === 0 && r.active_dose_mg !== '';
+        if (!hasObs && !isJab) return;
+        const x = xOf(i);
+        if (x - lastX < 42) return;
+        lastX = x;
+        xTicks += '<text x="' + x.toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle" fill="#9A9AA6" font-size="9.5">' + esc(fmtAxisDate(r.date)) + '</text>';
+      });
+    } else {
+      const step = Math.max(1, Math.floor(rows.length / 6));
+      for (let i = 0; i < rows.length; i += step) {
+        xTicks += '<text x="' + xOf(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle" fill="#9A9AA6" font-size="9.5">' + esc(fmtAxisDate(rows[i].date)) + '</text>';
+      }
     }
 
     const leg = opts.legend ? legendHtml(opts.legend) : '';
