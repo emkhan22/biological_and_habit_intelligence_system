@@ -137,9 +137,9 @@
     // 2. Weekly Body Readiness Ring
     html += '<div class="card">';
     html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
-      '<div><h2 class="card-title">Weekly Body Readiness</h2><p class="card-sub">Mode-aware ring · missing data excluded, never scored as 0</p></div>' +
+      '<div><h2 class="card-title">Weekly Body Readiness</h2><p class="card-sub">Weekly balance · missing data excluded, never scored as 0</p></div>' +
       provBadge('Derived') + '</div>';
-    html += Charts.renderReadinessRing(pillars, ringScore, STATE.privacyMode === 'private' ? 'Private Mode' : 'Clean Mode');
+    html += safeChart_('renderReadinessRing', [pillars, ringScore, 'This Week'], '<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px;">Readiness chart unavailable</div>');
     html += '<div class="grid-3" style="margin-top:10px;">' + pillars.map(function (p) {
       return '<div style="background:var(--card-2);padding:7px 9px;border-radius:10px;font-size:11px;">' +
         '<span style="color:' + p.color + ';font-weight:700;">● ' + esc(p.name) + '</span>' +
@@ -333,9 +333,10 @@
 
     html += filtered.map(function (m) {
       const vals = daily.map(function (r) { return r[m.field]; });
-      const mini = m.mini === 'bars' ? Charts.renderMiniBars(vals, m.color)
-                 : m.mini === 'dots' ? Charts.renderMiniDots(vals, m.color)
-                 : Charts.renderMiniSpark(vals, m.color);
+      const miniFn = m.mini === 'bars' ? 'renderMiniBars'
+                   : m.mini === 'dots' ? 'renderMiniDots'
+                   : 'renderMiniSpark';
+      const mini = safeChart_(miniFn, [vals, m.color], '');
       return '<div class="metric-row" data-mid="' + m.id + '">' +
         '<div class="metric-left">' +
           '<div class="metric-cat" style="color:' + m.color + ';"><span>● ' + esc(m.catLabel) + '</span> ' + provBadge(m.prov) + '</div>' +
@@ -426,16 +427,16 @@
         esc(sm.coOccurrenceNote.note || ('Avg sleep on smoked days: ' + sm.coOccurrenceNote.avgSleepHrsOnSmokedDays + 'h (n=' + sm.coOccurrenceNote.n + ')')) + '</div>' +
         '<div class="alert-row" style="margin-top:8px;"><strong>Health Motivation:</strong> Reducing cigarettes directly lowers reflux/GERD irritation, improves resting heart rate &amp; HRV, and compounds the cardiovascular gains of your weight loss.</div></div>';
     } else {
-      body = '<div class="card">' + Charts.renderDetailChart({
+      body = '<div class="card">' + safeChart_('renderDetailChart', [{
         rows: rows, field: m.field, field2: m.field2, qualityField: m.qualityField,
         color: m.color, color2: m.color2, kind: m.kind, minY: m.minY, maxY: m.maxY, overlays: STATE.overlays
-      }) + '<div class="overlay-tray">' +
+      }], '<div style="padding:24px;text-align:center;color:var(--muted);font-size:12px;">Chart unavailable</div>') + '<div class="overlay-tray">' +
         ['jabs:Jab days', 'meds:Med/Supp changes', 'period:Period', 'workouts:Strength', 'poorSleep:Poor sleep (<6h)'].map(function (pair) {
           const p = pair.split(':');
           return '<button class="ov-pill ' + (STATE.overlays[p[0]] ? 'on' : '') + '" data-ov="' + p[0] + '">' + esc(p[1]) + '</button>';
         }).join('') + '</div></div>';
       if (m.id === 'mood_impact') {
-        body += '<div class="card"><h3 class="card-title">49-Day Cross-Domain Logging Heatmap</h3>' + Charts.renderHeatmap(d.daily || []) + '</div>';
+        body += '<div class="card"><h3 class="card-title">49-Day Cross-Domain Logging Heatmap</h3>' + safeChart_('renderHeatmap', [d.daily || []], '<div style="color:var(--muted);font-size:12px;">Heatmap unavailable</div>') + '</div>';
       }
       if (m.kind === 'activity_bench') {
         const bm = d.habitSummary.benchmarks || {};
@@ -540,7 +541,7 @@
     // Whole-Body Printable Doctor Visit Brief
     html += '<div class="card" id="doctor-brief-card">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">' +
-        '<div><h2 class="card-title">Whole-Body Doctor Visit Brief</h2><p class="card-sub">Diagnoses, meds, procedures, imaging, longitudinal labs &amp; GI tolerability (zero smoking data)</p></div>' +
+        '<div><h2 class="card-title">Whole-Body Doctor Visit Brief</h2><p class="card-sub">Diagnoses, meds, procedures, imaging, longitudinal labs &amp; GI tolerability</p></div>' +
         '<div class="no-print" style="display:flex;gap:8px;">' +
           '<button class="btn-ghost" id="btn-load-brief">Load / Refresh Brief</button>' +
           '<button class="btn-primary" id="btn-print-brief" style="width:auto;padding:8px 14px;">Print / Save PDF</button>' +
@@ -625,70 +626,142 @@
     document.getElementById('view-wisdom').innerHTML = html;
   }
 
-  // ==================== DUAL-PIN MODAL CONTROLLER ====================
+  // ==================== DISCREET ACCESS PIN CONTROLLER ====================
   const pinModal = document.getElementById('pin-modal');
   const pinField = document.getElementById('pin-field');
   const pinStatus = document.getElementById('pin-status');
   const btnPinModal = document.getElementById('btn-pin-modal');
+  const btnPinSubmit = document.getElementById('btn-pin-submit');
   const btnPinLock = document.getElementById('btn-pin-lock');
+
+  function closePinModal_() {
+    pinModal.classList.remove('open');
+    pinField.value = '';
+    pinStatus.textContent = '';
+    btnPinSubmit.disabled = false;
+  }
+
+  function safeRenderCurrentTab_() {
+    try {
+      renderCurrentTab();
+    } catch (e) {
+      if (window.console && console.error) console.error('Render error:', e);
+    }
+  }
 
   btnPinModal.addEventListener('click', function () {
     pinField.value = '';
     pinStatus.textContent = '';
+    btnPinSubmit.disabled = false;
     btnPinLock.classList.toggle('hidden', STATE.privacyMode !== 'private');
     pinModal.classList.add('open');
     pinField.focus();
   });
-  document.getElementById('btn-pin-close').addEventListener('click', function () { pinModal.classList.remove('open'); });
+  document.getElementById('btn-pin-close').addEventListener('click', closePinModal_);
+  pinField.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); btnPinSubmit.click(); }
+  });
 
-  document.getElementById('btn-pin-submit').addEventListener('click', function () {
+  btnPinSubmit.addEventListener('click', function () {
     const val = pinField.value.trim();
-    if (!val) { pinStatus.textContent = 'Enter PIN 1 or PIN 2.'; return; }
-    pinStatus.textContent = 'Verifying on server…';
+    if (!val) { pinStatus.textContent = 'Please enter your PIN.'; return; }
+    btnPinSubmit.disabled = true;
+    pinStatus.textContent = 'Checking…';
+
+    let settled = false;
+    const verifyTimer = setTimeout(function () {
+      if (settled) return;
+      settled = true;
+      btnPinSubmit.disabled = false;
+      pinStatus.textContent = 'Request timed out. Please try again.';
+    }, 15000);
+
     google.script.run
       .withSuccessHandler(function (res) {
-        if (res.error) { pinStatus.textContent = res.error; return; }
+        if (settled) return;
+        settled = true;
+        clearTimeout(verifyTimer);
+
+        if (!res || res.error) {
+          btnPinSubmit.disabled = false;
+          pinStatus.textContent = (res && res.error) ? res.error : 'Unable to verify PIN.';
+          return;
+        }
         if (res.mode === 'private' && res.token) {
           STATE.privacyMode = 'private';
           STATE.privateToken = res.token;
-          pinStatus.textContent = 'Unlocked! Loading private smoking analytics…';
+          pinStatus.textContent = 'Updating view…';
+
+          let loadSettled = false;
+          const loadTimer = setTimeout(function () {
+            if (loadSettled) return;
+            loadSettled = true;
+            btnPinSubmit.disabled = false;
+            pinStatus.textContent = 'Loading timed out. Please try again.';
+          }, 15000);
+
           google.script.run
             .withSuccessHandler(function (smData) {
+              if (loadSettled) return;
+              loadSettled = true;
+              clearTimeout(loadTimer);
               STATE.smokingData = smData;
-              btnPinModal.textContent = '🔓 Private';
-              btnPinModal.classList.add('private-on');
-              pinModal.classList.remove('open');
-              renderCurrentTab();
+              closePinModal_();
+              safeRenderCurrentTab_();
             })
-            .withFailureHandler(function (e) { pinStatus.textContent = String(e.message || e); })
+            .withFailureHandler(function (e) {
+              if (loadSettled) return;
+              loadSettled = true;
+              clearTimeout(loadTimer);
+              btnPinSubmit.disabled = false;
+              pinStatus.textContent = String((e && e.message) || e || 'Unable to load view.');
+            })
             .getPrivateSmokingAnalytics(res.token);
         } else {
           enterCleanMode_();
-          pinModal.classList.remove('open');
         }
       })
-      .withFailureHandler(function (e) { pinStatus.textContent = String(e.message || e); })
+      .withFailureHandler(function (e) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(verifyTimer);
+        btnPinSubmit.disabled = false;
+        pinStatus.textContent = String((e && e.message) || e || 'Verification failed.');
+      })
       .verifyPinMode(val);
   });
 
   btnPinLock.addEventListener('click', function () {
-    const tok = STATE.privateToken;
     enterCleanMode_();
-    pinModal.classList.remove('open');
-    if (tok) google.script.run.revokePrivateSession(tok);
   });
 
   function enterCleanMode_() {
+    const prevTok = STATE.privateToken;
     STATE.privacyMode = 'clean';
     STATE.privateToken = '';
     STATE.smokingData = null;
     if (STATE.category === 'cravings') STATE.category = 'all';
-    btnPinModal.textContent = '🔒 Clean';
-    btnPinModal.classList.remove('private-on');
-    renderCurrentTab();
+    closePinModal_();
+    if (prevTok) {
+      google.script.run
+        .withFailureHandler(function () {})
+        .revokePrivateSession(prevTok);
+    }
+    safeRenderCurrentTab_();
   }
 
   // ==================== HELPERS ====================
+  function safeChart_(fnName, args, fallbackHtml) {
+    try {
+      const lib = window.Charts;
+      if (lib && typeof lib[fnName] === 'function') {
+        return lib[fnName].apply(lib, args || []);
+      }
+    } catch (e) {
+      if (window.console && console.error) console.error('Chart render failed (' + fnName + '):', e);
+    }
+    return fallbackHtml || '';
+  }
   function tileHtml_(k, v, d, accent) {
     return '<div class="stat-tile"><div class="stat-k"><span>' + esc(k) + '</span><span style="color:' + accent + ';">●</span></div>' +
       '<div class="stat-v">' + v + '</div><div class="stat-d">' + esc(d) + '</div></div>';
