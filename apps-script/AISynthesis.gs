@@ -10,7 +10,7 @@
 
 const AI_SYNTH_CONFIG = {
   CACHE_TAB: 'AI_Insights_Cache',
-  MODEL: 'gemini-2.5-flash',
+  MODELS: ['gemini-3.8-flash', 'gemini-3.5-flash-lite'],
   DISCLAIMER: 'Informational pattern analysis grounded in your logged records for physician discussion — not a medical diagnosis or dosing recommendation.'
 };
 
@@ -68,18 +68,28 @@ function generateHolisticClinicalSynthesis(opts) {
 
     const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
     let result = null;
-    let engineUsed = 'Deterministic Clinical Engine ($0)';
+    let engineUsed = 'Deterministic Clinical Engine';
 
     if (apiKey) {
-      try {
-        result = callGeminiClinicalApi_(apiKey, ctx);
-        engineUsed = 'Gemini (' + AI_SYNTH_CONFIG.MODEL + ')';
-      } catch (e) {
-        Logger.log('Gemini API fallback triggered: ' + e.message);
+      const models = AI_SYNTH_CONFIG.MODELS || ['gemini-3.8-flash', 'gemini-3.5-flash-lite'];
+      for (let i = 0; i < models.length; i++) {
+        const modelName = models[i];
+        try {
+          const attempt = callGeminiClinicalApi_(apiKey, ctx, modelName);
+          if (attempt && attempt.holisticBrief) {
+            result = attempt;
+            engineUsed = modelName;
+            break;
+          }
+          Logger.log('Gemini model ' + modelName + ' returned incomplete JSON; trying next fallback.');
+        } catch (e) {
+          Logger.log('Gemini model ' + modelName + ' failed (' + e.message + '); trying next fallback.');
+        }
       }
     }
     if (!result || !result.holisticBrief) {
       result = buildGroundedDeterministicSynthesis_(ctx);
+      engineUsed = 'Deterministic Clinical Engine';
     }
 
     const nowStr = Utilities.formatDate(new Date(), tz, 'dd-MM-yyyy, hh:mm a') + ' IST';
@@ -204,10 +214,11 @@ function buildDeterministicClinicalContext_(ssStore, cfg, targetKg) {
 }
 
 /**
- * Calls Gemini REST API with strict JSON schema & deterministic context.
+ * Calls Gemini REST API with strict JSON schema & deterministic context for a specific model.
  */
-function callGeminiClinicalApi_(apiKey, ctx) {
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + AI_SYNTH_CONFIG.MODEL + ':generateContent?key=' + encodeURIComponent(apiKey);
+function callGeminiClinicalApi_(apiKey, ctx, modelName) {
+  const activeModel = modelName || (AI_SYNTH_CONFIG.MODELS && AI_SYNTH_CONFIG.MODELS[0]) || 'gemini-3.8-flash';
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(activeModel) + ':generateContent?key=' + encodeURIComponent(apiKey);
   const prompt = [
     'You are a clinically cautious personal health synthesis assistant.',
     'Analyze ONLY the deterministic JSON metrics below. Never invent numbers, never diagnose, never recommend dose changes.',
@@ -236,8 +247,9 @@ function callGeminiClinicalApi_(apiKey, ctx) {
     })
   });
 
-  if (resp.getResponseCode() !== 200) {
-    throw new Error('Gemini HTTP ' + resp.getResponseCode());
+  const code = resp.getResponseCode();
+  if (code !== 200) {
+    throw new Error(activeModel + ' HTTP ' + code);
   }
   const body = JSON.parse(resp.getContentText());
   const text = body && body.candidates && body.candidates[0] && body.candidates[0].content && body.candidates[0].content.parts && body.candidates[0].content.parts[0] && body.candidates[0].content.parts[0].text;
