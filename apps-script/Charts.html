@@ -1,0 +1,232 @@
+<script>
+/**
+ * Charts.html — Zero-CDN Native SVG Charting Library for Glapp+ Web App.
+ * CSP-safe inside Google Sites iframes; supports Multi-Event Overlays.
+ */
+const Charts = (function () {
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // 1. Dynamic 5- or 6-Segment Weekly Body Readiness Ring
+  function renderReadinessRing(pillars, avgScore, modeLabel) {
+    const cx = 110, cy = 110, r = 82, sw = 15;
+    const n = pillars.length;
+    const gapDeg = 7;
+    const segDeg = (360 / n) - gapDeg;
+
+    function polar(deg) {
+      const rad = ((deg - 90) * Math.PI) / 180;
+      return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+    }
+    function arc(startDeg, endDeg) {
+      const p1 = polar(startDeg), p2 = polar(endDeg);
+      const large = (endDeg - startDeg) > 180 ? 1 : 0;
+      return 'M ' + p1.x.toFixed(1) + ' ' + p1.y.toFixed(1) + ' A ' + r + ' ' + r + ' 0 ' + large + ' 1 ' + p2.x.toFixed(1) + ' ' + p2.y.toFixed(1);
+    }
+
+    let paths = '';
+    pillars.forEach(function (p, i) {
+      const s = i * (segDeg + gapDeg) + gapDeg / 2;
+      const e = s + segDeg;
+      const pct = p.score == null ? 0 : Math.max(0.08, Math.min(1, p.score / 100));
+      const fillEnd = s + segDeg * pct;
+      paths += '<path d="' + arc(s, e) + '" fill="none" stroke="#26262B" stroke-width="' + sw + '" stroke-linecap="round"/>';
+      if (p.score != null) {
+        paths += '<path d="' + arc(s, fillEnd) + '" fill="none" stroke="' + p.color + '" stroke-width="' + sw + '" stroke-linecap="round"/>';
+      }
+    });
+
+    return (
+      '<svg viewBox="0 0 220 220" style="width:180px;height:180px;display:block;margin:0 auto;">' +
+        paths +
+        '<text x="110" y="102" text-anchor="middle" fill="#F4F4F6" font-size="30" font-weight="700">' + (avgScore == null ? '—' : avgScore) + '</text>' +
+        '<text x="110" y="122" text-anchor="middle" fill="#9A9AA6" font-size="11" font-weight="600">' + esc(modeLabel) + '</text>' +
+        '<text x="110" y="138" text-anchor="middle" fill="#B85A9E" font-size="10">' + n + '-Pillar Readiness</text>' +
+      '</svg>'
+    );
+  }
+
+  // 2. Compact Mini-Charts for Glapp Progress Summary Cards
+  function renderMiniSpark(values, color) {
+    const nums = values.filter(function (v) { return v !== '' && v != null && !isNaN(Number(v)); }).map(Number);
+    if (nums.length < 2) return '<svg width="78" height="28"><line x1="4" y1="14" x2="74" y2="14" stroke="#2F2F36" stroke-dasharray="2,2"/></svg>';
+    const mn = Math.min.apply(null, nums), mx = Math.max.apply(null, nums), span = (mx - mn) || 1;
+    const pts = nums.map(function (v, i) {
+      const x = 4 + (i / (nums.length - 1)) * 70;
+      const y = 24 - ((v - mn) / span) * 20;
+      return (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1);
+    }).join(' ');
+    return '<svg width="78" height="28" viewBox="0 0 78 28"><path d="' + pts + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round"/></svg>';
+  }
+
+  function renderMiniBars(values, color) {
+    const slice = values.slice(-10).map(function (v) { return (v === '' || v == null || isNaN(Number(v))) ? 0 : Number(v); });
+    const mx = Math.max.apply(null, slice.concat([1]));
+    const bw = 5, gap = 2.5;
+    let rects = '';
+    slice.forEach(function (v, i) {
+      const h = Math.max(2, (v / mx) * 22);
+      rects += '<rect x="' + (2 + i * (bw + gap)).toFixed(1) + '" y="' + (26 - h).toFixed(1) + '" width="' + bw + '" height="' + h.toFixed(1) + '" rx="1.5" fill="' + (v > 0 ? color : '#2F2F36') + '"/>';
+    });
+    return '<svg width="78" height="28" viewBox="0 0 78 28">' + rects + '</svg>';
+  }
+
+  function renderMiniDots(values, color) {
+    const slice = values.slice(-10);
+    let dots = '';
+    slice.forEach(function (v, i) {
+      const on = v !== '' && v != null && Number(v) > 0;
+      dots += '<circle cx="' + (6 + i * 7.2).toFixed(1) + '" cy="14" r="' + (on ? 3.2 : 1.8) + '" fill="' + (on ? color : '#2F2F36') + '"/>';
+    });
+    return '<svg width="78" height="28" viewBox="0 0 78 28">' + dots + '</svg>';
+  }
+
+  // 3. Multi-Event Overlay Vertical Markers
+  function buildOverlaySvg(rows, overlays, xOf, padT, plotH) {
+    let svg = '';
+    rows.forEach(function (r, i) {
+      const x = xOf(i);
+      if (overlays.jabs && Number(r.days_since_shot) === 0 && r.active_dose_mg !== '') {
+        svg += '<line x1="' + x + '" y1="' + padT + '" x2="' + x + '" y2="' + (padT + plotH) + '" stroke="#B85A9E" stroke-width="1.3" stroke-dasharray="3,2"/>';
+        svg += '<rect x="' + (x - 16) + '" y="' + (padT - 14) + '" width="32" height="13" rx="4" fill="#B85A9E"/>';
+        svg += '<text x="' + x + '" y="' + (padT - 4.5) + '" text-anchor="middle" fill="#fff" font-size="8.5" font-weight="700">' + esc(r.active_dose_mg) + 'mg</text>';
+      }
+      if (overlays.period && r.active_period === 'Yes') {
+        svg += '<rect x="' + (x - 4) + '" y="' + padT + '" width="8" height="' + plotH + '" fill="#F472B6" opacity="0.16"/>';
+      }
+      if (overlays.workouts && Number(r.strength_sessions) > 0) {
+        svg += '<circle cx="' + x + '" cy="' + (padT + plotH - 5) + '" r="3.5" fill="#F59E0B"/>';
+      }
+      if (overlays.poorSleep && r.sleep_hrs !== '' && Number(r.sleep_hrs) < 6.0) {
+        svg += '<line x1="' + x + '" y1="' + (padT + plotH - 12) + '" x2="' + x + '" y2="' + (padT + plotH) + '" stroke="#EF4444" stroke-width="2"/>';
+      }
+      if (overlays.meds && (r.date === '2026-10-02' || r.date === '2026-10-10' || r.date === '2026-11-10' || r.date === '2026-11-25')) {
+        svg += '<line x1="' + x + '" y1="' + padT + '" x2="' + x + '" y2="' + (padT + plotH) + '" stroke="#38BDF8" stroke-width="1.2" stroke-dasharray="2,2"/>';
+      }
+    });
+    return svg;
+  }
+
+  // 4. Main Detail Chart (Line / Dual-Line / Bar / Zoned-Line / PK+Symptom Dot)
+  function renderDetailChart(opts) {
+    const rows = opts.rows || [];
+    if (!rows.length) return '<div style="padding:32px;text-align:center;color:var(--muted);font-size:12px;">No measured data in this time range.</div>';
+
+    const W = 720, H = 250, padL = 44, padR = 18, padT = 24, padB = 30;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const xOf = function (i) { return rows.length === 1 ? padL + plotW / 2 : padL + (i / (rows.length - 1)) * plotW; };
+
+    const vals1 = rows.map(function (r) { return (r[opts.field] === '' || r[opts.field] == null) ? null : Number(r[opts.field]); });
+    const vals2 = opts.field2 ? rows.map(function (r) { return (r[opts.field2] === '' || r[opts.field2] == null) ? null : Number(r[opts.field2]); }) : [];
+    const allNums = vals1.concat(vals2).filter(function (v) { return v !== null && !isNaN(v); });
+    if (!allNums.length) return '<div style="padding:32px;text-align:center;color:var(--muted);font-size:12px;">Unavailable in selected range (never interpolated as 0).</div>';
+
+    const minV = opts.minY != null ? opts.minY : Math.floor(Math.min.apply(null, allNums) * 0.94);
+    const maxV = opts.maxY != null ? opts.maxY : Math.ceil(Math.max.apply(null, allNums) * 1.06);
+    const span = (maxV - minV) || 1;
+    const yOf = function (v) { return padT + plotH - ((v - minV) / span) * plotH; };
+
+    let bg = '';
+    if (opts.kind === 'zoned') {
+      bg += '<rect x="' + padL + '" y="' + padT + '" width="' + plotW + '" height="' + (plotH * 0.33) + '" fill="#22C55E" opacity="0.09"/>';
+      bg += '<rect x="' + padL + '" y="' + (padT + plotH * 0.33) + '" width="' + plotW + '" height="' + (plotH * 0.34) + '" fill="#F59E0B" opacity="0.07"/>';
+      bg += '<rect x="' + padL + '" y="' + (padT + plotH * 0.67) + '" width="' + plotW + '" height="' + (plotH * 0.33) + '" fill="#EF4444" opacity="0.09"/>';
+    }
+
+    let grid = '';
+    for (let g = 0; g <= 4; g++) {
+      const gv = minV + (span * g) / 4;
+      const gy = yOf(gv);
+      grid += '<line x1="' + padL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + gy.toFixed(1) + '" stroke="#2F2F36" stroke-dasharray="2,3"/>';
+      grid += '<text x="' + (padL - 6) + '" y="' + (gy + 3.5).toFixed(1) + '" text-anchor="end" fill="#9A9AA6" font-size="9.5">' + gv.toFixed(span < 10 ? 1 : 0) + '</text>';
+    }
+
+    const overlaySvg = buildOverlaySvg(rows, opts.overlays || {}, xOf, padT, plotH);
+
+    let series = '';
+    if (opts.kind === 'bar') {
+      const bw = Math.max(4, Math.min(20, (plotW / rows.length) * 0.65));
+      rows.forEach(function (r, i) {
+        const v = vals1[i];
+        if (v === null) return;
+        const y = yOf(v);
+        const fill = (opts.qualityField && Number(r[opts.qualityField]) >= 70) ? '#A855F7' : (opts.color || '#38BDF8');
+        series += '<rect x="' + (xOf(i) - bw / 2).toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(2, padT + plotH - y).toFixed(1) + '" rx="3" fill="' + fill + '" opacity="0.9"><title>' + esc(r.date + ': ' + v) + '</title></rect>';
+      });
+    } else if (opts.kind === 'pk_symptoms') {
+      // Plot Est. Tirzepatide PK curve in background + Symptom dots on foreground
+      const pkVals = rows.map(function (r) { return r.est_tirz_mg_model === '' ? null : Number(r.est_tirz_mg_model); });
+      const pkMax = Math.max.apply(null, pkVals.filter(function (v) { return v !== null; }).concat([5]));
+      let pkPath = '';
+      pkVals.forEach(function (v, i) {
+        if (v === null) return;
+        const py = padT + plotH - (v / pkMax) * (plotH * 0.85);
+        pkPath += (pkPath ? ' L' : 'M') + xOf(i).toFixed(1) + ',' + py.toFixed(1);
+      });
+      if (pkPath) {
+        series += '<path d="' + pkPath + '" fill="none" stroke="#22C55E" stroke-width="2" stroke-dasharray="4,3" opacity="0.8"/>';
+      }
+      rows.forEach(function (r, i) {
+        const v = vals1[i];
+        if (v === null || v <= 0) return;
+        const cy = yOf(v);
+        series += '<circle cx="' + xOf(i).toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="' + Math.min(7, 3 + v * 0.8).toFixed(1) + '" fill="#38BDF8"><title>' + esc(r.date + ': ' + v + ' symptom(s) — ' + (r.top_side_effects || '') + ' | Est. Tirz: ' + (r.est_tirz_mg_model || '—') + ' mg') + '</title></circle>';
+      });
+    } else {
+      // Line or Dual-Line
+      function drawLine(arr, color) {
+        let d = '', dots = '';
+        arr.forEach(function (v, i) {
+          if (v === null) return;
+          const x = xOf(i).toFixed(1), y = yOf(v).toFixed(1);
+          d += (d ? ' L' : 'M') + x + ',' + y;
+          dots += '<circle cx="' + x + '" cy="' + y + '" r="3.4" fill="' + color + '"><title>' + esc(rows[i].date + ': ' + v) + '</title></circle>';
+        });
+        return '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="2.4" stroke-linecap="round"/>' + dots;
+      }
+      series += drawLine(vals1, opts.color || '#22C55E');
+      if (opts.field2) series += drawLine(vals2, opts.color2 || '#38BDF8');
+    }
+
+    // X-axis date ticks (up to 6 evenly spaced)
+    let xTicks = '';
+    const step = Math.max(1, Math.floor(rows.length / 5));
+    for (let i = 0; i < rows.length; i += step) {
+      xTicks += '<text x="' + xOf(i).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle" fill="#9A9AA6" font-size="9.5">' + esc(String(rows[i].date || '').slice(5)) + '</text>';
+    }
+
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;display:block;">' + bg + grid + overlaySvg + series + xTicks + '</svg>';
+  }
+
+  // 5. GitHub-style Logging Consistency Heatmap
+  function renderHeatmap(dailyRows) {
+    const slice = dailyRows.slice(-49);
+    const cell = 14, gap = 3;
+    let rects = '';
+    slice.forEach(function (r, idx) {
+      const col = Math.floor(idx / 7), row = idx % 7;
+      let score = 0;
+      if (r.weight_kg !== '') score++;
+      if (r.calories_kcal !== '') score++;
+      if (r.sleep_hrs !== '') score++;
+      if (r.glapp_mood !== '') score++;
+      if (r.meds_taken !== '' || r.meds_skipped !== '') score++;
+      const fills = ['#26262B', '#14532D', '#166534', '#16A34A', '#22C55E', '#4ADE80'];
+      rects += '<rect x="' + (col * (cell + gap)) + '" y="' + (row * (cell + gap)) + '" width="' + cell + '" height="' + cell + '" rx="3" fill="' + fills[Math.min(5, score)] + '"><title>' + esc(r.date + ': ' + score + '/5 domains logged') + '</title></rect>';
+    });
+    const w = Math.ceil(slice.length / 7) * (cell + gap);
+    return '<svg viewBox="0 0 ' + Math.max(120, w) + ' ' + (7 * (cell + gap)) + '" style="width:100%;max-width:300px;height:auto;">' + rects + '</svg>';
+  }
+
+  return {
+    renderReadinessRing: renderReadinessRing,
+    renderMiniSpark: renderMiniSpark,
+    renderMiniBars: renderMiniBars,
+    renderMiniDots: renderMiniDots,
+    renderDetailChart: renderDetailChart,
+    renderHeatmap: renderHeatmap
+  };
+})();
+</script>

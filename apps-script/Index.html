@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Personal Health Intelligence Center</title>
+  <?!= include('Styles'); ?>
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Persistent 4-Tab Navigation (Bottom bar on mobile, Left rail on desktop) -->
+    <nav class="nav-bar no-print" role="tablist" aria-label="Primary Navigation">
+      <div class="nav-brand">
+        <div style="font-weight:700;font-size:15px;">Health Intelligence</div>
+        <div style="font-size:11px;color:var(--muted);">Glapp+ Companion · V1</div>
+      </div>
+      <button class="nav-item active" data-tab="home" aria-selected="true">
+        <span class="nav-dot">●</span><span>Home</span>
+      </button>
+      <button class="nav-item" data-tab="progress" aria-selected="false">
+        <span class="nav-dot">◷</span><span>Progress</span>
+      </button>
+      <button class="nav-item" data-tab="reports" aria-selected="false">
+        <span class="nav-dot">▤</span><span>Reports</span>
+      </button>
+      <button class="nav-item" data-tab="wisdom" aria-selected="false">
+        <span class="nav-dot">✦</span><span>Wisdom</span>
+      </button>
+    </nav>
+
+    <main class="main-wrap">
+      <!-- Top Header -->
+      <header class="top-header no-print">
+        <div>
+          <h1 class="top-title" id="header-title">Health Control Centre</h1>
+          <div class="top-sub" id="header-sub">Loading live Health_Intelligence_Store…</div>
+        </div>
+        <div class="header-actions">
+          <button class="icon-btn" id="btn-refresh" title="Reload live data">↻</button>
+          <button class="icon-btn" id="btn-pin-modal" title="Privacy Mode">🔒 Clean</button>
+        </div>
+      </header>
+
+      <!-- Loading State -->
+      <div id="loading-view" class="loading-box">
+        <div style="font-size:16px;font-weight:700;color:var(--fg);">Syncing Health Intelligence Store…</div>
+        <div style="font-size:12px;margin-top:6px;">Reading your 10 derived tabs privately from Google Drive.</div>
+      </div>
+
+      <!-- 4 Main Tab Panels -->
+      <section id="view-home" class="hidden"></section>
+      <section id="view-progress" class="hidden"></section>
+      <section id="view-reports" class="hidden"></section>
+      <section id="view-wisdom" class="hidden"></section>
+    </main>
+  </div>
+
+  <!-- Standardized 4-Part Drill-Down Detail Screen -->
+  <div id="detail-overlay" class="detail-overlay" role="dialog" aria-modal="true">
+    <div class="detail-inner" id="detail-content"></div>
+  </div>
+
+  <!-- Server-Side Dual-PIN Privacy Modal -->
+  <div id="pin-modal" class="modal-backdrop" role="dialog" aria-modal="true">
+    <div class="modal-box">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h3 style="margin:0;font-size:15px;">Privacy Mode (Server-Verified)</h3>
+        <button class="btn-ghost" id="btn-pin-close" style="padding:4px 9px;">✕</button>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin:8px 0 4px 0;">
+        Enter <strong>PIN 1</strong> for Clean Mode (hides smoking, 5-pillar ring) or <strong>PIN 2</strong> for Private Full Mode (30-min server session).
+      </p>
+      <input id="pin-field" class="pin-input" type="password" inputmode="numeric" maxlength="12" placeholder="••••" />
+      <div id="pin-status" style="font-size:11.5px;color:var(--amber);min-height:18px;margin-bottom:6px;"></div>
+      <button class="btn-primary" id="btn-pin-submit">Verify PIN</button>
+      <button class="btn-ghost hidden" id="btn-pin-lock" style="width:100%;margin-top:8px;">Lock &amp; Return to Clean Mode</button>
+    </div>
+  </div>
+
+  <?!= include('Charts'); ?>
+  <?!= include('App'); ?>
+</body>
+</html>
