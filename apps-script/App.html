@@ -1,27 +1,49 @@
 <script>
 /**
- * App.html — Phase 2 Client Controller for the 4-Tab Glapp+ Mobile-First Web App.
- * Tabs: Home · Progress (10 Categories + V2 Skincare hook) · Reports · Wisdom.
- * Dual-PIN state kept strictly in JS memory (never localStorage).
+ * App.html — V2.2 Lock-Screen-First Glapp+ Client Controller.
+ * Zero health data fetched or rendered until server verifies PIN 1 or PIN 2.
  */
 (function () {
   const STATE = {
+    unlocked: false,
     data: null,
     doctorBrief: null,
     tab: 'home',
     category: 'all',
     selectedWeekIdx: -1,
-    privacyMode: 'clean', // 'clean' | 'private'
+    privacyMode: 'clean',
     privateToken: '',
     smokingData: null,
     detailMetric: null,
     detailRange: 'All',
+    nutrSubTab: 'fiber',
+    symptomFilter: 'All',
+    symptomCompare: 'sleep_hrs',
+    labTab: 'HbA1c',
+    labYearCutoff: '2022',
+    medFilter: 'All',
     overlays: { jabs: true, meds: false, period: true, workouts: false, poorSleep: false }
   };
 
   function esc(s) {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function cleanDateStr_(s) {
+    return String(s || '').replace(/\s+(00:00:00|05:30:00).*$/i, '').replace(/T.*$/, '').trim();
+  }
+  function fmtDateIN_(iso) {
+    if (window.Charts && window.Charts.fmtDateIN) return window.Charts.fmtDateIN(iso);
+    const c = cleanDateStr_(iso);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(c)) return c || '—';
+    const p = c.split('-');
+    return p[2] + '-' + p[1] + '-' + p[0];
+  }
+  function fmtHrsMin_(hrs) {
+    if (window.Charts && window.Charts.fmtHrsMin) return window.Charts.fmtHrsMin(hrs);
+    if (hrs === '' || hrs == null || isNaN(Number(hrs))) return '—';
+    const m = Math.round(Number(hrs) * 60);
+    return Math.floor(m / 60) + 'h ' + (m % 60 < 10 ? '0' : '') + (m % 60) + 'm';
   }
   function fmt(v, unit) {
     return (v === '' || v == null) ? '—' : (String(v) + (unit ? ' ' + unit : ''));
@@ -38,25 +60,134 @@
     const m = map[type] || map.Measured;
     return '<span class="prov ' + m[0] + '">' + m[1] + '</span>';
   }
+  function safeChart_(fnName, args, fallbackHtml) {
+    try {
+      const lib = window.Charts;
+      if (lib && typeof lib[fnName] === 'function') return lib[fnName].apply(lib, args || []);
+    } catch (e) {
+      if (window.console && console.error) console.error('Chart error (' + fnName + '):', e);
+    }
+    return fallbackHtml || '';
+  }
 
-  // ==================== BOOT & DATA LOADING ====================
-  function loadLivePayload() {
+  // ==================== LOCK-SCREEN-FIRST PRIVACY GATE ====================
+  const pinGate = document.getElementById('pinGate');
+  const appShell = document.getElementById('appShell');
+  const pinField = document.getElementById('pin-field');
+  const pinStatus = document.getElementById('pin-status');
+  const btnPinSubmit = document.getElementById('btn-pin-submit');
+
+  function lockAndWipe_() {
+    const prevTok = STATE.privateToken;
+    STATE.unlocked = false;
+    STATE.data = null;
+    STATE.doctorBrief = null;
+    STATE.privacyMode = 'clean';
+    STATE.privateToken = '';
+    STATE.smokingData = null;
+    STATE.detailMetric = null;
+    STATE.category = 'all';
+    document.getElementById('detail-overlay').classList.remove('open');
+    ['home', 'progress', 'reports', 'wisdom'].forEach(function (t) {
+      const el = document.getElementById('view-' + t);
+      el.innerHTML = '';
+      el.classList.add('hidden');
+    });
+    appShell.classList.add('hidden');
+    pinField.value = '';
+    pinStatus.textContent = '';
+    btnPinSubmit.disabled = false;
+    pinGate.classList.remove('hidden');
+    pinField.focus();
+    if (prevTok) {
+      google.script.run.withFailureHandler(function () {}).revokePrivateSession(prevTok);
+    }
+  }
+
+  function fetchPostPinData_(mode, token) {
+    pinGate.classList.add('hidden');
+    appShell.classList.remove('hidden');
     document.getElementById('loading-view').classList.remove('hidden');
+    STATE.unlocked = true;
+    STATE.privacyMode = mode;
+    STATE.privateToken = token || '';
+
     google.script.run
       .withSuccessHandler(function (payload) {
         STATE.data = payload;
         STATE.selectedWeekIdx = Math.max(0, (payload.weekly || []).length - 1);
-        document.getElementById('loading-view').classList.add('hidden');
         document.getElementById('header-sub').textContent = 'Synced ' + payload.meta.loadedAt + ' · ' + payload.meta.calcVersion;
-        renderCurrentTab();
+        if (mode === 'private' && token) {
+          google.script.run
+            .withSuccessHandler(function (smData) {
+              STATE.smokingData = smData;
+              document.getElementById('loading-view').classList.add('hidden');
+              safeRenderCurrentTab_();
+            })
+            .withFailureHandler(function () {
+              document.getElementById('loading-view').classList.add('hidden');
+              safeRenderCurrentTab_();
+            })
+            .getPrivateSmokingAnalytics(token);
+        } else {
+          document.getElementById('loading-view').classList.add('hidden');
+          safeRenderCurrentTab_();
+        }
       })
       .withFailureHandler(function (err) {
         document.getElementById('loading-view').innerHTML =
-          '<div style="color:var(--red);font-weight:700;">Failed to load Health_Intelligence_Store</div>' +
-          '<div style="font-size:12px;margin-top:6px;">' + esc(err && err.message ? err.message : String(err)) + '</div>';
+          '<div style="color:var(--red);font-weight:700;">Failed to load data</div>' +
+          '<div style="font-size:12px;margin-top:6px;">' + esc((err && err.message) || err) + '</div>';
       })
       .getDashboardPayload();
   }
+
+  pinField.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); btnPinSubmit.click(); }
+  });
+  btnPinSubmit.addEventListener('click', function () {
+    const val = pinField.value.trim();
+    if (!val) { pinStatus.textContent = 'Please enter your PIN.'; return; }
+    btnPinSubmit.disabled = true;
+    pinStatus.textContent = 'Checking…';
+
+    let settled = false;
+    const timer = setTimeout(function () {
+      if (settled) return;
+      settled = true;
+      btnPinSubmit.disabled = false;
+      pinStatus.textContent = 'Request timed out. Please try again.';
+    }, 15000);
+
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (!res || res.error) {
+          btnPinSubmit.disabled = false;
+          pinStatus.textContent = (res && res.error) ? res.error : 'Invalid PIN.';
+          return;
+        }
+        pinField.value = '';
+        pinStatus.textContent = '';
+        btnPinSubmit.disabled = false;
+        fetchPostPinData_(res.mode === 'private' ? 'private' : 'clean', res.token || '');
+      })
+      .withFailureHandler(function (e) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        btnPinSubmit.disabled = false;
+        pinStatus.textContent = String((e && e.message) || e || 'Verification failed.');
+      })
+      .verifyPinMode(val);
+  });
+
+  document.getElementById('btn-lock').addEventListener('click', lockAndWipe_);
+  document.getElementById('btn-refresh').addEventListener('click', function () {
+    if (STATE.unlocked) fetchPostPinData_(STATE.privacyMode, STATE.privateToken);
+  });
 
   // ==================== NAVIGATION ====================
   document.querySelectorAll('.nav-item').forEach(function (btn) {
@@ -68,21 +199,23 @@
       });
       const titles = { home: 'Health Control Centre', progress: 'Progress & Analytics', reports: 'Reports & Doctor Brief', wisdom: 'Wisdom & Research' };
       document.getElementById('header-title').textContent = titles[STATE.tab] || 'Health Intelligence';
-      renderCurrentTab();
+      safeRenderCurrentTab_();
     });
   });
 
-  document.getElementById('btn-refresh').addEventListener('click', loadLivePayload);
-
-  function renderCurrentTab() {
-    if (!STATE.data) return;
-    ['home', 'progress', 'reports', 'wisdom'].forEach(function (t) {
-      document.getElementById('view-' + t).classList.toggle('hidden', t !== STATE.tab);
-    });
-    if (STATE.tab === 'home') renderHome();
-    if (STATE.tab === 'progress') renderProgress();
-    if (STATE.tab === 'reports') renderReports();
-    if (STATE.tab === 'wisdom') renderWisdom();
+  function safeRenderCurrentTab_() {
+    if (!STATE.unlocked || !STATE.data) return;
+    try {
+      ['home', 'progress', 'reports', 'wisdom'].forEach(function (t) {
+        document.getElementById('view-' + t).classList.toggle('hidden', t !== STATE.tab);
+      });
+      if (STATE.tab === 'home') renderHome();
+      if (STATE.tab === 'progress') renderProgress();
+      if (STATE.tab === 'reports') renderReports();
+      if (STATE.tab === 'wisdom') renderWisdom();
+    } catch (e) {
+      if (window.console && console.error) console.error('Render error:', e);
+    }
   }
 
   // ==================== TAB 1: HOME ====================
@@ -94,93 +227,88 @@
     const prev7 = d.habitSummary.prev7 || {};
     const latestW = getLatestWeight_(daily);
     const oct7 = Number(d.meta.oct7BaselineKg || 108.3);
-    const pctLost = latestW ? (((oct7 - latestW.w) / oct7) * 100).toFixed(2) : null;
+    const pctLost = latestW ? (((oct7 - latestW.w) / oct7) * 100) : null;
+    const distLiver7 = pctLost != null ? Math.max(0, 7.0 - pctLost).toFixed(2) : '—';
+    const distClass1 = pctLost != null ? Math.max(0, 14.0 - pctLost).toFixed(1) : '—';
+    const distOverwt = pctLost != null ? Math.max(0, 26.5 - pctLost).toFixed(1) : '—';
 
-    // 5-Pillar Clean Ring (6-Pillar when PIN 2 Private Mode is active)
     const pillars = [
-      { name: 'Sleep', score: cur7.avgSleep ? Math.min(100, Math.round((cur7.avgSleep / 7.5) * 100)) : null, color: '#A855F7' },
-      { name: 'Activity', score: cur7.avgSteps ? Math.min(100, Math.round((cur7.avgSteps / 7000) * 100)) : null, color: '#22C55E' },
-      { name: 'Nutrition', score: cur7.avgProtein ? Math.min(100, Math.round((cur7.avgProtein / 100) * 100)) : null, color: '#F59E0B' },
-      { name: 'Meds', score: latest.meds_taken !== '' ? Math.round((Number(latest.meds_taken) / Math.max(1, Number(latest.meds_taken) + Number(latest.meds_skipped || 0))) * 100) : null, color: '#38BDF8' },
-      { name: 'Symptoms', score: latest.side_effect_count === '' ? 90 : Math.max(25, 100 - Number(latest.side_effect_count) * 15), color: '#B85A9E' }
+      { name: 'Sleep', score: cur7.avgSleep ? Math.min(100, Math.round((cur7.avgSleep / 7.5) * 100)) : null, color: '#A855F7', formula: '7d avg sleep (' + fmtHrsMin_(cur7.avgSleep) + ') ÷ 7h 30m target (unworn <2h nights excluded).' },
+      { name: 'Activity', score: cur7.avgSteps ? Math.min(100, Math.round((cur7.avgSteps / 7000) * 100)) : null, color: '#22C55E', formula: '7d avg steps (' + fmt(cur7.avgSteps) + ') ÷ 7,000 daily step target.' },
+      { name: 'Nutrition', score: cur7.avgProtein ? Math.min(100, Math.round((cur7.avgProtein / 100) * 100)) : null, color: '#F59E0B', formula: '7d avg protein (' + fmt(cur7.avgProtein, 'g') + ') ÷ 100g muscle-sparing target (unlogged days excluded).' },
+      { name: 'Meds', score: latest.meds_taken !== '' ? Math.round((Number(latest.meds_taken) / Math.max(1, Number(latest.meds_taken) + Number(latest.meds_skipped || 0))) * 100) : null, color: '#38BDF8', formula: 'Latest logged meds taken ÷ (taken + skipped) from Micro Journal Meds_Log.' },
+      { name: 'Symptoms', score: latest.side_effect_count === '' ? 90 : Math.max(25, 100 - Number(latest.side_effect_count) * 15), color: '#B85A9E', formula: '100 − (15 × latest daily logged symptom count), floored at 25.' }
     ];
     if (STATE.privacyMode === 'private' && STATE.smokingData) {
       const smk = STATE.smokingData;
-      const smkScore = smk.totalCigarettesSmoked === 0 ? 100 : Math.max(20, 100 - smk.totalCigarettesSmoked * 15);
-      pillars.push({ name: 'Smoke-Free', score: smkScore, color: '#F472B6' });
+      pillars.push({
+        name: 'Smoke-Free',
+        score: smk.totalCigarettesSmoked === 0 ? 100 : Math.max(20, 100 - smk.totalCigarettesSmoked * 15),
+        color: '#F472B6',
+        formula: '100 − (15 × logged cigarettes), boosted by resisted cravings.'
+      });
     }
     const validPillars = pillars.filter(function (p) { return p.score != null; });
     const ringScore = validPillars.length ? Math.round(validPillars.reduce(function (s, p) { return s + p.score; }, 0) / validPillars.length) : null;
 
-    // Daily Action & Sparse-Logging Nudges
-    const nudges = buildDailyNudges_(cur7, latest, d.qaLog || []);
-
-    // Latest Gemini "Inside Your Body" output (handles empty/stale cleanly until Phase 3)
-    const insideAi = (d.aiOutputs || []).slice().reverse().find(function (r) { return r.report_type === 'INSIDE_YOUR_BODY'; });
-    const todayIso = String(latest.date || '');
-    const aiIsFresh = insideAi && String(insideAi.period_key || '') === todayIso;
-
-    // QA & Clinical Alerts (reported separately from lifestyle wellbeing score)
-    const qaWarnings = (d.qaLog || []).filter(function (q) { return String(q.qa_flag || '').toLowerCase() !== 'info'; });
-
-    let html = '';
-
-    // 1. Repurposed 2x2 Top Stat Tiles (Zero Glapp Duplication)
     const wbDelta = (cur7.avgWellbeing !== '' && prev7.avgWellbeing !== '') ? Math.round(cur7.avgWellbeing - prev7.avgWellbeing) : null;
-    html += '<div class="grid-2">';
-    html += tileHtml_('Weekly Habit Momentum', fmt(cur7.avgWellbeing, '/100'), wbDelta == null ? 'Rolling 7-day average' : ((wbDelta >= 0 ? '↑ +' : '↓ ') + wbDelta + ' vs prior 7d'), '#B85A9E');
-    html += tileHtml_('Muscle Shield', fmt(cur7.avgProtein, 'g/d'), (cur7.strengthSessions || 0) + ' strength session(s) in 7d', '#F59E0B');
-    html += tileHtml_('Recovery & Readiness', fmt(cur7.avgSleep, 'h'), 'HRV ' + fmt(cur7.avgHrv, 'ms') + ' · RHR ' + fmt(cur7.avgRhr, 'bpm'), '#A855F7');
-    html += tileHtml_('Metabolic Pulse', pctLost ? ('−' + pctLost + '%') : '—', latestW ? (latestW.w + ' kg vs Oct 7 · 7% liver zone') : 'No weight yet', '#22C55E');
+    let html = '<div class="grid-2">';
+    html += tileFormulaHtml_('Weekly Habit Momentum', fmt(cur7.avgWellbeing, '/100'), wbDelta == null ? 'Rolling 7-day average' : ((wbDelta >= 0 ? '↑ +' : '↓ ') + wbDelta + ' vs prior 7d'), '#B85A9E', 'fm-wb', 'Equal-weighted mean of available daily pillars (Sleep ÷ 7.5h, Steps ÷ 7,000, Protein ÷ 100g, HRV ÷ 45ms, Meds adherence). Missing pillars are excluded, never scored 0.');
+    html += tileFormulaHtml_('Muscle Shield', fmt(cur7.avgProtein, 'g/d'), '7d avg protein · ' + (cur7.strengthSessions || 0) + ' strength in 7d', '#F59E0B', 'fm-ms', 'Tracks 7-day average daily protein intake (target ≥100g/d) paired with 7-day strength/resistance session count (target ≥2/wk).');
+    html += tileFormulaHtml_('Recovery & Readiness', fmtHrsMin_(cur7.avgSleep), 'HRV ' + fmt(cur7.avgHrv, 'ms') + ' · RHR ' + fmt(cur7.avgRhr, 'bpm'), '#A855F7', 'fm-rec', '7-day valid nightly sleep duration (excluding <2h unworn nights), paired with Fitbit HRV RMSSD and resting HR.');
+    html += tileFormulaHtml_('Metabolic Pulse', pctLost != null ? ('−' + pctLost.toFixed(2) + '%') : '—', distLiver7 + '% to 7% Fatty Liver · ' + distClass1 + '% to Class I · ' + distOverwt + '% to Overweight', '#22C55E', 'fm-met', 'Percentage body-weight reduction since 07-10-2026 baseline. Milestones track % distance to 7% MASLD steatosis reversal zone, Obesity Class I (BMI <35), and Overweight (BMI <30).');
     html += '</div>';
 
-    // 2. Weekly Body Readiness Ring
-    html += '<div class="card">';
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
-      '<div><h2 class="card-title">Weekly Body Readiness</h2><p class="card-sub">Weekly balance · missing data excluded, never scored as 0</p></div>' +
-      provBadge('Derived') + '</div>';
-    html += safeChart_('renderReadinessRing', [pillars, ringScore, 'This Week'], '<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px;">Readiness chart unavailable</div>');
-    html += '<div class="grid-3" style="margin-top:10px;">' + pillars.map(function (p) {
-      return '<div style="background:var(--card-2);padding:7px 9px;border-radius:10px;font-size:11px;">' +
-        '<span style="color:' + p.color + ';font-weight:700;">● ' + esc(p.name) + '</span>' +
-        '<div style="font-weight:700;font-size:14px;margin-top:2px;">' + (p.score == null ? '—' : p.score + '/100') + '</div></div>';
-    }).join('') + '</div></div>';
+    // Weekly Body Readiness Ring with per-pillar formula info
+    html += '<div class="card">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
+        '<div><h2 class="card-title">Weekly Body Readiness</h2><p class="card-sub">Tap ⓘ on any pillar to see exact formula &amp; inputs</p></div>' +
+        provBadge('Derived') + '</div>' +
+      safeChart_('renderReadinessRing', [pillars, ringScore, 'This Week'], '') +
+      '<div class="grid-3" style="margin-top:10px;">' + pillars.map(function (p, i) {
+        return '<div style="background:var(--card-2);padding:7px 9px;border-radius:10px;font-size:11px;">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+            '<span style="color:' + p.color + ';font-weight:700;">● ' + esc(p.name) + '</span>' +
+            '<button class="info-btn" data-fbox="pil-' + i + '" title="Formula">ⓘ</button>' +
+          '</div>' +
+          '<div style="font-weight:700;font-size:14px;margin-top:2px;">' + (p.score == null ? '—' : p.score + '/100') + '</div>' +
+          '<div class="formula-box" id="pil-' + i + '">' + esc(p.formula) + '</div></div>';
+      }).join('') + '</div></div>';
 
-    // 3. Swipeable Daily Action & Sparse-Logging Nudge Cards
-    html += '<div class="card card-plum">';
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
-      '<div><h2 class="card-title">Daily Coaching &amp; Logging Nudges</h2><p class="card-sub">Tap any card for Why + Your Data + Evidence</p></div>' +
-      provBadge('Derived') + '</div>';
-    html += '<div class="h-scroll">' + nudges.map(function (n, idx) {
-      return '<div class="coach-card">' +
-        '<div style="font-size:10.5px;font-weight:700;color:var(--plum);text-transform:uppercase;">' + esc(n.tag) + '</div>' +
-        '<div style="font-weight:700;font-size:13.5px;margin-top:3px;">' + esc(n.title) + '</div>' +
-        '<div style="font-size:12px;color:var(--fg);margin-top:4px;">' + esc(n.action) + '</div>' +
-        '<button class="link-btn" data-drawer="nd-' + idx + '">Why + Your Data ▾</button>' +
-        '<div class="coach-drawer" id="nd-' + idx + '"><strong>Your Data:</strong> ' + esc(n.dataWhy) + '<br/><strong>Evidence:</strong> ' + esc(n.evidence) + '</div>' +
-      '</div>';
-    }).join('') + '</div></div>';
+    // Daily Coaching & Logging Nudges
+    const nudges = buildDailyNudges_(cur7);
+    html += '<div class="card card-plum">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
+        '<div><h2 class="card-title">Daily Coaching &amp; Logging Nudges</h2><p class="card-sub">Tap any card for Why + Your Data + Evidence</p></div>' +
+        provBadge('Derived') + '</div>' +
+      '<div class="h-scroll">' + nudges.map(function (n, idx) {
+        return '<div class="coach-card">' +
+          '<div style="font-size:10.5px;font-weight:700;color:var(--plum);text-transform:uppercase;">' + esc(n.tag) + '</div>' +
+          '<div style="font-weight:700;font-size:13.5px;margin-top:3px;">' + esc(n.title) + '</div>' +
+          '<div style="font-size:12px;color:var(--fg);margin-top:4px;">' + esc(n.action) + '</div>' +
+          '<button class="link-btn" data-drawer="nd-' + idx + '">Why + Your Data ▾</button>' +
+          '<div class="coach-drawer" id="nd-' + idx + '"><strong>Your Data:</strong> ' + esc(n.dataWhy) + '<br/><strong>Evidence:</strong> ' + esc(n.evidence) + '</div></div>';
+      }).join('') + '</div></div>';
 
-    // 4. Gemini-Narrated "Inside Your Body" Card
-    html += '<div class="card">';
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;">' +
+    // Inside Your Body (Gemini)
+    const insideAi = (d.aiOutputs || []).slice().reverse().find(function (r) { return r.report_type === 'INSIDE_YOUR_BODY'; });
+    const aiIsFresh = insideAi && cleanDateStr_(insideAi.period_key) === cleanDateStr_(latest.date);
+    html += '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;">' +
       '<div><h2 class="card-title">Inside Your Body</h2><p class="card-sub">Multi-therapy physiological synthesis</p></div>' +
-      (aiIsFresh ? provBadge('AI') : '<span class="prov prov-model">◐ Pending Today\'s Gemini Brief</span>') + '</div>';
+      (aiIsFresh ? provBadge('AI') : '<span class="prov prov-model">◐ Pending Today\'s Brief</span>') + '</div>';
     if (insideAi) {
-      html += '<div style="font-weight:700;font-size:13.5px;margin-bottom:5px;">' + esc(insideAi.headline) + '</div>';
-      html += '<p style="font-size:12.5px;color:var(--muted);margin:0 0 8px 0;">' + esc(insideAi.body_markdown) + '</p>';
-      html += '<div style="font-size:11px;color:var(--muted);">Generated: ' + esc(insideAi.generated_at) + ' · ' + esc(insideAi.citations || '') + '</div>';
+      html += '<div style="font-weight:700;font-size:13.5px;margin-bottom:5px;">' + esc(insideAi.headline) + '</div>' +
+        '<p style="font-size:12.5px;color:var(--muted);margin:0 0 8px 0;">' + esc(insideAi.body_markdown) + '</p>' +
+        '<div style="font-size:11px;color:var(--muted);">Updated: ' + esc(insideAi.generated_at) + ' · ' + esc(insideAi.citations || '') + '</div>';
     } else {
       html += '<p class="card-sub">Phase 3 Gemini Scheduled Action will populate your daily biological narrative here.</p>';
     }
     html += '</div>';
 
-    // 5. Clinical & QA Alert Strip (Strictly Separate from Lifestyle Score)
-    html += '<div class="card">';
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;">' +
-      '<h2 class="card-title">Clinical &amp; Data-Quality Alerts</h2>' +
-      '<span style="font-size:11px;color:var(--muted);">Separate from Wellbeing Score</span></div>';
-    html += '<div class="alert-row info"><strong>Post-IV-Iron Lab Window Open:</strong> ~7 wks post Oct 10 Orofer FCM 1000 mg infusion — discuss repeat CBC &amp; Ferritin with your doctor.</div>';
+    // Clinical & QA Alerts
+    const qaWarnings = (d.qaLog || []).filter(function (q) { return String(q.qa_flag || '').toLowerCase() !== 'info'; });
+    html += '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;"><h2 class="card-title">Clinical &amp; Data-Quality Alerts</h2><span style="font-size:11px;color:var(--muted);">Separate from Wellbeing Score</span></div>' +
+      '<div class="alert-row info"><strong>Post-IV-Iron Lab Window Open:</strong> ~7 wks post 10-10-2026 Orofer FCM 1000 mg infusion — discuss repeat CBC &amp; Ferritin with your doctor.</div>';
     if (cur7.avgFiber !== '' && cur7.avgFiber < 20) {
       html += '<div class="alert-row"><strong>Fiber Gap (7d avg ' + cur7.avgFiber + ' g/d):</strong> Below 25g target; monitor constipation &amp; glycemic response.</div>';
     }
@@ -189,126 +317,112 @@
     });
     html += '</div>';
 
-    // 6. Conditional Active-Period Card (Hidden unless actively bleeding)
     if (latest.active_period === 'Yes') {
-      html += '<div class="card" style="border-color:rgba(244,114,182,0.5);">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;">' +
-          '<h2 class="card-title" style="color:var(--rose);">Active Period Logged</h2>' + provBadge('Measured') +
-        '</div>' +
-        '<p class="card-sub" style="margin-top:4px;">Weight fluctuations, bloating, and headaches may reflect cycle phase. Tap Progress → Cycle for longitudinal comparison.</p>' +
-      '</div>';
+      html += '<div class="card" style="border-color:rgba(244,114,182,0.5);"><div style="display:flex;justify-content:space-between;align-items:center;"><h2 class="card-title" style="color:var(--rose);">Active Period Logged</h2>' + provBadge('Measured') + '</div><p class="card-sub" style="margin-top:4px;">Weight fluctuations, bloating, and headaches may reflect cycle phase.</p></div>';
     }
 
     const el = document.getElementById('view-home');
     el.innerHTML = html;
     el.querySelectorAll('[data-drawer]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        document.getElementById(btn.dataset.drawer).classList.toggle('open');
-      });
+      btn.addEventListener('click', function () { document.getElementById(btn.dataset.drawer).classList.toggle('open'); });
+    });
+    el.querySelectorAll('[data-fbox]').forEach(function (btn) {
+      btn.addEventListener('click', function () { document.getElementById(btn.dataset.fbox).classList.toggle('open'); });
     });
   }
 
-  // ==================== TAB 2: PROGRESS (10 NON-REDUNDANT CATEGORIES) ====================
+  // ==================== TAB 2: PROGRESS ====================
   function getMetricCatalog_() {
-    const d = STATE.data;
-    const daily = d.daily || [];
-    const cur7 = d.habitSummary.cur7 || {};
-    const bm = d.habitSummary.benchmarks || {};
+    const d = STATE.data, daily = d.daily || [], cur7 = d.habitSummary.cur7 || {}, bm = d.habitSummary.benchmarks || {};
     const latestBC = daily.slice().reverse().find(function (r) { return r.fat_mass_kg !== ''; }) || {};
 
     const items = [
-      // 1. Body Comp (Zero Glapp weight/peers/trials duplication)
       { id: 'fat_lean', cat: 'bodycomp', catLabel: 'Body Comp', color: '#22C55E', title: 'Fat vs. Lean Mass (Fitdays BIA)',
         val: latestBC.fat_mass_kg ? (latestBC.fat_mass_kg + ' kg fat · ' + latestBC.muscle_mass_kg + ' kg muscle') : '—',
-        sub: 'Skeletal muscle ' + fmt(latestBC.skeletal_muscle_pct, '%') + ' · Visceral ' + fmt(latestBC.visceral_fat) + ' · BIA estimate',
-        prov: 'Measured', mini: 'spark', field: 'fat_mass_kg', field2: 'muscle_mass_kg', color2: '#38BDF8', kind: 'line', domainCov: 'bodyComp',
-        about: 'Fitdays BIA estimates are hydration- and cycle-sensitive. Evaluate multi-week fat vs. muscle trends rather than single readings.' },
+        sub: 'Skeletal muscle ' + fmt(latestBC.skeletal_muscle_pct, '%') + ' · Visceral ' + fmt(latestBC.visceral_fat),
+        prov: 'Measured', mini: 'spark', field: 'fat_mass_kg', field2: 'muscle_mass_kg', color2: '#38BDF8', label1: 'Fat Mass', label2: 'Muscle Mass', unit1: 'kg', unit2: 'kg', kind: 'line', domainCov: 'bodyComp', allowedOverlays: ['jabs', 'period'],
+        legend: [{ color: '#22C55E', label: 'Fat Mass (kg)' }, { color: '#38BDF8', label: 'Muscle Mass (kg)' }],
+        about: 'Fitdays BIA estimates are hydration- and cycle-sensitive. Only Jab days & Period overlays apply to weekly weigh-in cadence.' },
       { id: 'bone_prot', cat: 'bodycomp', catLabel: 'Body Comp', color: '#22C55E', title: 'Bone Health & Protein Weight',
         val: fmt(latestBC.bone_mass_kg, 'kg bone') + ' · ' + fmt(latestBC.protein_mass_kg, 'kg prot'),
-        sub: 'Tracks structural mass during rapid weight loss',
-        prov: 'Measured', mini: 'spark', field: 'protein_mass_kg', kind: 'line', domainCov: 'bodyComp',
-        about: 'Monitors Fitdays-estimated bone mass and body protein mass alongside your protein intake and strength training.' },
+        sub: 'Structural mass tracking during weight loss',
+        prov: 'Measured', mini: 'spark', field: 'protein_mass_kg', label1: 'Protein Mass', unit1: 'kg', kind: 'line', domainCov: 'bodyComp', allowedOverlays: ['jabs', 'period'],
+        about: 'Monitors Fitdays-estimated bone mass and body protein mass alongside protein intake and strength training.' },
       { id: 'goal_sim', cat: 'bodycomp', catLabel: 'Body Comp', color: '#22C55E', title: 'Goal Path Simulator & Loss Rate',
-        val: 'Interactive Simulator', sub: 'Target weight ETA band + healthy 0.5–1%/wk safety check',
-        prov: 'Model', mini: 'spark', field: 'weight_kg', kind: 'goal_sim', domainCov: 'weight',
-        about: 'Model Estimate: projects arrival date range from your observed weekly loss rate with ±20% deceleration band.' },
+        val: 'SVG Trajectory + TDEE Model', sub: 'Projected curve, ±20% band & metabolic adaptation insights',
+        prov: 'Model', mini: 'spark', field: 'weight_kg', kind: 'goal_sim', noRangeBar: true, domainCov: 'weight',
+        about: 'Model Estimate: projects continuation curve and ±20% deceleration band, plus estimates when ~1,400 kcal/d approaches maintenance TDEE.' },
 
-      // 2. Bioavailability & Adherence
       { id: 'bio_audit', cat: 'bioavail', catLabel: 'Bioavailability', color: '#38BDF8', title: 'Absorption, Timing & Skipped-Dose Audit',
-        val: (d.bioAudit || []).length + ' med logs audited', sub: 'Thyronorm fasting gap · Fish Oil/Vit D fat co-ingestion',
-        prov: 'Derived', mini: 'dots', field: 'meds_taken', kind: 'bio_table', domainCov: 'meds',
-        about: 'Joins Micro Journal Meds_Log timestamps with HealthConnect Nutrition_Log meal fat & timing. Cannot measure direct blood absorption.' },
+        val: (d.bioAudit || []).length + ' med logs audited', sub: 'Med selector · exact timestamps · fasting gap · stabilization curves',
+        prov: 'Derived', mini: 'dots', field: 'meds_taken', kind: 'bio_table', noRangeBar: true, domainCov: 'meds',
+        about: 'Uses exact Micro Journal Meds_Log HH:mm timestamps cross-referenced with Nutrition_Log first meal time. Skipped doses are strictly tagged Skipped.' },
 
-      // 3. Nutrition & Muscle Shield
       { id: 'protein', cat: 'nutrition', catLabel: 'Nutrition', color: '#F59E0B', title: 'Protein & Muscle Preservation',
-        val: fmt(cur7.avgProtein, 'g/d (7d)'), sub: 'Target ~95–110g/d · ' + (cur7.nutritionLoggedDays || 0) + '/7 days logged',
-        prov: 'Derived', mini: 'bars', field: 'protein_g', kind: 'bar', domainCov: 'nutrition',
-        about: 'Unlogged days are excluded (never treated as 0g). Pair high protein with 2×/wk strength training to protect lean mass.' },
+        val: fmt(cur7.avgProtein, 'g/d (7d)'), sub: 'Target ~100g/d · ' + (cur7.nutritionLoggedDays || 0) + '/7 days logged',
+        prov: 'Derived', mini: 'bars', field: 'protein_g', label1: 'Protein', unit1: 'g', kind: 'bar', domainCov: 'nutrition',
+        about: 'Unlogged days are excluded (never 0g). Pair high protein with ≥2×/wk strength training to protect lean mass.' },
       { id: 'calories', cat: 'nutrition', catLabel: 'Nutrition', color: '#F59E0B', title: 'Calories & Anti-Crash Floor',
-        val: fmt(cur7.avgCalories, 'kcal/d'), sub: 'Monitors under-eating dips during peak tirzepatide days',
-        prov: 'Derived', mini: 'bars', field: 'calories_kcal', kind: 'bar', domainCov: 'nutrition',
-        about: 'Overlays daily calories with jab days so you can spot overly aggressive calorie dips on Days 1–2 post-shot.' },
+        val: fmt(cur7.avgCalories, 'kcal/d'), sub: 'Overlaid with smooth Tirzepatide PK curve',
+        prov: 'Derived', mini: 'bars', field: 'calories_kcal', label1: 'Calories', unit1: 'kcal', kind: 'bar', showPk: true, domainCov: 'nutrition',
+        legend: [{ color: '#F59E0B', label: 'Daily Calories (kcal)' }, { color: '#22C55E', label: 'Est. Tirzepatide PK Curve' }, { color: '#38BDF8', label: 'Strength / Med Changes' }],
+        about: 'Compares daily calories against the smooth hourly Tirzepatide PK curve to spot under-eating on peak suppression days.' },
       { id: 'fiber_water', cat: 'nutrition', catLabel: 'Nutrition', color: '#F59E0B', title: 'Fiber, Sugar & Hydration',
-        val: fmt(cur7.avgFiber, 'g fiber') + ' · ' + fmt(cur7.avgWater, 'L water'), sub: 'Critical for constipation, headaches & insulin resistance',
-        prov: 'Derived', mini: 'bars', field: 'fiber_g', kind: 'bar', domainCov: 'nutrition',
-        about: 'Tracks fiber adequacy (target 25g/d) and logged hydration (partial logging noted).' },
+        val: fmt(cur7.avgFiber, 'g fiber') + ' · ' + fmt(cur7.avgSugar, 'g sugar') + ' · ' + fmt(cur7.avgWater, 'L'),
+        sub: 'Multi-metric sub-tabs for Fiber, Added Sugar & Hydration',
+        prov: 'Derived', mini: 'bars', field: 'fiber_g', kind: 'nutr_subtabs', domainCov: 'nutrition',
+        about: 'Switch between Fiber (target 25g), Sugar (target <25g), and Hydration (target 2.5L). Unlogged days are never treated as 0.' },
 
-      // 4. Metabolic & Clinical Labs
       { id: 'fatty_liver', cat: 'metabolic', catLabel: 'Metabolic & Labs', color: '#22C55E', title: 'Grade 1 Fatty Liver Reversal Simulator',
-        val: 'Phase 1 (≥5%) Crossed!', sub: 'Interactive What-If model toward 7–10% steatosis resolution',
-        prov: 'Model', mini: 'spark', field: 'weight_kg', kind: 'liver_sim', domainCov: 'weight',
+        val: 'Phase 1 (≥5%) Crossed!', sub: 'Multi-driver clinical simulator + rationale',
+        prov: 'Model', mini: 'spark', field: 'weight_kg', kind: 'liver_sim', noRangeBar: true, domainCov: 'weight',
         about: 'Model Estimate grounded in AASLD/EASL MASLD guidelines & tirzepatide hepatic trials. Verify with follow-up ultrasound & LFTs.' },
       { id: 'glucose_labs', cat: 'metabolic', catLabel: 'Metabolic & Labs', color: '#22C55E', title: 'Blood Glucose, HbA1c & Lab Trends',
-        val: (d.labs || []).length + ' historical lab rows', sub: 'HbA1c 6.2% · FBS 136.2 · Insulin 34 · Iron/Vit D/TSH',
-        prov: 'Measured', mini: 'spark', field: 'weight_kg', kind: 'labs_view', domainCov: 'weight',
-        about: 'Preserves exact original lab values, units, reference ranges, and Source_Filename from AggregatedMedicalRecords.' },
+        val: (d.labs || []).length + ' longitudinal lab rows', sub: '8 individual biomarker tabs · 2020–2026 SVG trends',
+        prov: 'Measured', mini: 'spark', field: 'weight_kg', kind: 'labs_view', noRangeBar: true, domainCov: 'weight',
+        about: 'Individual biomarker tabs with Since 2022 / All Years filter, reference-range shading, and What-If projection bands.' },
 
-      // 5. Symptoms x Est. Tirzepatide Level
-      { id: 'symptoms_pk', cat: 'symptoms', catLabel: 'Symptoms', color: '#38BDF8', title: 'Symptoms × Est. Tirzepatide Level',
-        val: daily.reduce(function (s, r) { return s + (Number(r.side_effect_count) || 0); }, 0) + ' total logs',
-        sub: 'Granular symptoms overlaid on 1-compartment PK curve',
-        prov: 'Model', mini: 'dots', field: 'side_effect_count', kind: 'pk_symptoms', domainCov: 'symptoms',
-        about: 'Green dashed curve is a 1-compartment PK estimate (not plasma level). Blue dots show symptom burden by date.' },
+      { id: 'symptoms_pk', cat: 'symptoms', catLabel: 'Symptoms', color: '#38BDF8', title: 'Symptoms × Lifestyle & Tirzepatide Level',
+        val: (d.symptomsEvents || []).length + ' granular logs', sub: 'Symptom filter · hourly Bateman PK · Sleep/Steps/Hydration/Food overlay',
+        prov: 'Model', mini: 'dots', field: 'side_effect_count', kind: 'symptoms_advanced', domainCov: 'symptoms',
+        about: 'Filters blended Glapp + Micro Journal symptoms individually against smooth hourly Bateman PK kinetics and daily lifestyle drivers.' },
 
-      // 6. Sleep & Recovery
       { id: 'sleep', cat: 'sleep', catLabel: 'Sleep & Recovery', color: '#A855F7', title: 'Sleep Duration & Quality Stages',
-        val: fmt(cur7.avgSleep, 'hrs/night (7d)'), sub: 'Excludes <120m unworn nights automatically',
-        prov: 'Measured', mini: 'bars', field: 'sleep_hrs', qualityField: 'deep_mins', kind: 'bar', domainCov: 'sleep',
-        about: 'Bars show valid nightly sleep duration (purple highlight = >=70m deep sleep). Unworn nights (<120m) are excluded.' },
+        val: fmtHrsMin_(cur7.avgSleep) + ' (7d avg)', sub: 'Stacked Deep/REM/Light/Awake + ⚡ Nocturnal HR Spikes',
+        prov: 'Measured', mini: 'bars', field: 'sleep_hrs', kind: 'stacked_sleep', domainCov: 'sleep',
+        about: 'Stacked nightly stages formatted as Xh Ym (excluding <2h unworn nights), overlaid with nocturnal HR spike badges.' },
       { id: 'hrv_rhr', cat: 'sleep', catLabel: 'Sleep & Recovery', color: '#A855F7', title: 'HRV & Resting Heart Rate',
-        val: 'HRV ' + fmt(cur7.avgHrv, 'ms') + ' · RHR ' + fmt(cur7.avgRhr, 'bpm'), sub: 'SpO₂ omitted (0/308 source rows populated)',
-        prov: 'Measured', mini: 'spark', field: 'hrv_rmssd_ms', field2: 'resting_hr', color2: '#F472B6', kind: 'line', domainCov: 'vitals',
-        about: 'Monitors autonomic recovery across tirzepatide dose escalation and Thyronorm adjustment.' },
+        val: 'HRV ' + fmt(cur7.avgHrv, 'ms') + ' · RHR ' + fmt(cur7.avgRhr, 'bpm'), sub: 'Day gridlines · Jab days ON · ⚡ Nocturnal HR spikes',
+        prov: 'Measured', mini: 'spark', field: 'hrv_rmssd_ms', field2: 'resting_hr', color2: '#F472B6', label1: 'HRV', label2: 'RHR', unit1: 'ms', unit2: 'bpm', kind: 'line', dayGrid: true, showHrSpikes: true, domainCov: 'vitals',
+        legend: [{ color: '#A855F7', label: 'HRV (ms)' }, { color: '#F472B6', label: 'Resting HR (bpm)' }, { color: '#F472B6', label: '⚡ Nocturnal HR Spikes' }],
+        about: 'Tracks autonomic recovery across tirzepatide dose escalation and Thyronorm adjustment (SpO₂ omitted as 0/308 populated).' },
 
-      // 7. Activity & Strength
       { id: 'steps_bench', cat: 'activity', catLabel: 'Activity & Strength', color: '#F59E0B', title: 'Steps, Best-Day Benchmark & Sleep → Workout',
-        val: fmt(cur7.avgSteps, 'steps/d (7d)'), sub: 'Personal Good-Day P90: ' + fmt(bm.stepsP90) + ' · ' + (cur7.strengthSessions || 0) + ' strength/7d',
+        val: fmt(cur7.avgSteps, 'steps/d (7d)'), sub: 'P90: ' + fmt(bm.stepsP90) + ' · Cyan Strength · Prior-night Sleep Tiers',
         prov: 'Derived', mini: 'bars', field: 'steps', kind: 'activity_bench', domainCov: 'steps',
-        about: 'Compares today & past week against your personal 90th-percentile Good Day and shows Sleep -> next-day workout co-occurrence (non-causal).' },
+        about: 'Pairs daily steps with your Personal Good-Day P90 benchmark, cyan Strength workout markers, and prior-night ≥7h vs <6h sleep tiers.' },
 
-      // 8. Mood & Good-Day Impact
       { id: 'mood_impact', cat: 'mood', catLabel: 'Mood & Habits', color: '#A855F7', title: 'Unified Mood, Hunger & Logging Heatmap',
-        val: 'Mood · Food Noise · Streak', sub: 'Blends Glapp daily scores + Micro Journal mood & habits',
-        prov: 'Measured', mini: 'spark', field: 'glapp_mood', field2: 'food_noise', color2: '#F59E0B', kind: 'zoned', minY: 0, maxY: 5, domainCov: 'mood',
-        about: 'Zoned timeline of daily mood vs. food noise, paired with your 49-day cross-domain logging consistency heatmap.' },
+        val: 'Mood vs. Food Noise · Good vs. Low Mood', sub: 'Explicit legend · labeled 49d heatmap · lifestyle lift card',
+        prov: 'Measured', mini: 'spark', field: 'glapp_mood', field2: 'food_noise', color2: '#F59E0B', label1: 'Mood', label2: 'Food Noise', kind: 'zoned', minY: 0, maxY: 5, domainCov: 'mood',
+        legend: [{ color: '#A855F7', label: 'Daily Mood (0–5)' }, { color: '#F59E0B', label: 'Food Noise (0–5)' }],
+        about: 'Zoned mood vs. food noise timeline, labeled 49-day heatmap, and Good Mood vs. Low Mood lifestyle comparison.' },
 
-      // 9. Menstrual & Hormonal
       { id: 'menstrual', cat: 'cycle', catLabel: 'Menstrual & Hormonal', color: '#F472B6', title: 'Metabolic-to-Menstrual Trajectory',
-        val: (d.menstrual || []).length + ' tracked cycles', sub: 'Flo -> HealthConnect longitudinal cycle regularity',
-        prov: 'Measured', mini: 'bars', field: 'steps', kind: 'cycle_view', domainCov: 'weight',
-        about: 'Preserves Flo-to-HealthConnect source handover and tracks cycle length changes as metabolic health improves.' }
+        val: (d.menstrual || []).length + ' tracked cycles', sub: 'Visual longitudinal flow-intensity bars across eras',
+        prov: 'Measured', mini: 'bars', field: 'steps', kind: 'cycle_view', noRangeBar: true, domainCov: 'weight',
+        about: 'Horizontal cycle bars split into non-period vs. period days with color-coded flow intensity segments (Spotting, Light, Medium, Heavy).' }
     ];
 
-    // 10. Cigarettes & Cravings — ONLY added when PIN 2 Private Mode is active!
     if (STATE.privacyMode === 'private' && STATE.smokingData) {
       const sm = STATE.smokingData;
       items.push({
-        id: 'smoking_priv', cat: 'cravings', catLabel: 'Cigarettes & Cravings (Private)', color: '#F472B6',
+        id: 'smoking_priv', cat: 'cravings', catLabel: 'Cigarettes & Cravings', color: '#F472B6',
         title: 'Cigarettes, Resisted Cravings & Triggers',
         val: sm.totalCigarettesSmoked + ' smoked · ' + sm.cravingsResisted + ' resisted',
-        sub: 'Avg delay ' + fmt(sm.avgDelayMinutes, 'm') + ' · Server-side Private Mode only',
-        prov: 'Measured', mini: 'dots', field: 'side_effect_count', kind: 'smoking_view', domainCov: 'symptoms',
-        about: 'Read directly from Micro Journal!Smoking_Log in server memory (never stored in Health_Intelligence_Store).'
+        sub: 'Avg delay ' + fmt(sm.avgDelayMinutes, 'm'),
+        prov: 'Measured', mini: 'dots', field: 'side_effect_count', kind: 'smoking_view', noRangeBar: true, domainCov: 'symptoms',
+        about: 'Read directly from Micro Journal in server memory for this session.'
       });
     }
     return items;
@@ -321,7 +435,7 @@
       { id: 'symptoms', lbl: 'Symptoms' }, { id: 'sleep', lbl: 'Sleep' },
       { id: 'activity', lbl: 'Activity' }, { id: 'mood', lbl: 'Mood & Habits' }, { id: 'cycle', lbl: 'Cycle' }
     ];
-    if (STATE.privacyMode === 'private') chips.push({ id: 'cravings', lbl: '🔒 Cravings' });
+    if (STATE.privacyMode === 'private') chips.push({ id: 'cravings', lbl: 'Cravings' });
 
     const catalog = getMetricCatalog_();
     const filtered = STATE.category === 'all' ? catalog : catalog.filter(function (m) { return m.cat === STATE.category; });
@@ -329,22 +443,18 @@
 
     let html = '<div class="chips">' + chips.map(function (c) {
       return '<button class="chip ' + (STATE.category === c.id ? 'active' : '') + '" data-cat="' + c.id + '">' + esc(c.lbl) + '</button>';
-    }).join('') + '<span class="chip v2" title="Planned for V2">V2: Skincare</span></div>';
+    }).join('') + '<span class="chip v2">V2: Skincare</span></div>';
 
     html += filtered.map(function (m) {
       const vals = daily.map(function (r) { return r[m.field]; });
-      const miniFn = m.mini === 'bars' ? 'renderMiniBars'
-                   : m.mini === 'dots' ? 'renderMiniDots'
-                   : 'renderMiniSpark';
-      const mini = safeChart_(miniFn, [vals, m.color], '');
+      const miniFn = m.mini === 'bars' ? 'renderMiniBars' : (m.mini === 'dots' ? 'renderMiniDots' : 'renderMiniSpark');
       return '<div class="metric-row" data-mid="' + m.id + '">' +
         '<div class="metric-left">' +
           '<div class="metric-cat" style="color:' + m.color + ';"><span>● ' + esc(m.catLabel) + '</span> ' + provBadge(m.prov) + '</div>' +
           '<div class="metric-val">' + esc(m.title) + '</div>' +
           '<div class="metric-sub">' + esc(m.val) + ' · ' + esc(m.sub) + '</div>' +
         '</div>' +
-        '<div class="metric-right">' + mini + '<span class="chev">›</span></div>' +
-      '</div>';
+        '<div class="metric-right">' + safeChart_(miniFn, [vals, m.color], '') + '<span class="chev">›</span></div></div>';
     }).join('');
 
     const el = document.getElementById('view-progress');
@@ -360,7 +470,7 @@
     });
   }
 
-  // ==================== 4-PART DRILL-DOWN DETAIL SCREEN ====================
+  // ==================== DRILL-DOWN DETAIL SCREEN ====================
   function openDetailScreen(metric) {
     STATE.detailMetric = metric;
     renderDetailScreen();
@@ -369,8 +479,17 @@
 
   function sliceByRange_(rows, range) {
     const map = { W: 7, M: 30, '3M': 90, '6M': 180, Y: 365, All: 9999 };
-    const n = map[range] || 9999;
-    return rows.slice(Math.max(0, rows.length - n));
+    return rows.slice(Math.max(0, rows.length - (map[range] || 9999)));
+  }
+
+  function overlayTrayHtml_(allowed) {
+    const all = [
+      ['jabs', 'Jab days'], ['meds', 'Med/Supp changes'], ['period', 'Period'],
+      ['workouts', 'Strength (Cyan)'], ['poorSleep', 'Poor sleep (<6h)']
+    ].filter(function (p) { return !allowed || allowed.indexOf(p[0]) !== -1; });
+    return '<div class="overlay-tray">' + all.map(function (p) {
+      return '<button class="ov-pill ' + (STATE.overlays[p[0]] ? 'on' : '') + '" data-ov="' + p[0] + '">' + esc(p[1]) + '</button>';
+    }).join('') + '</div>';
   }
 
   function renderDetailScreen() {
@@ -379,184 +498,298 @@
     const d = STATE.data;
     const rows = sliceByRange_(d.daily || [], STATE.detailRange);
     const cov = (d.coverage || {})[m.domainCov] || {};
+    const shots = d.shots || [];
 
     let body = '';
     if (m.kind === 'goal_sim') {
-      const lw = getLatestWeight_(d.daily || []);
-      const curW = lw ? lw.w : 102.7;
+      const wRows = (d.daily || []).filter(function (r) { return r.weight_kg !== '' && r.weight_kg != null; });
+      const curW = wRows.length ? Number(wRows[wRows.length - 1].weight_kg) : 102.7;
+      const initTgt = Math.max(70, Math.round(curW - 8));
       body = '<div class="card">' +
-        '<div class="slider-row"><div style="display:flex;justify-content:space-between;font-size:12px;"><span>Target Weight</span><strong id="gs-val">' + (curW - 8).toFixed(1) + ' kg</strong></div>' +
-        '<input id="gs-range" type="range" min="68" max="' + Math.floor(curW - 1) + '" step="0.5" value="' + (curW - 8).toFixed(1) + '"/></div>' +
-        '<div id="gs-out" style="font-size:12.5px;color:var(--muted);"></div></div>';
+        '<div id="gs-svg-box"></div>' +
+        '<div class="slider-row"><div style="display:flex;justify-content:space-between;font-size:12px;"><span>Target Weight</span><strong id="gs-val">' + initTgt.toFixed(1) + ' kg</strong></div>' +
+        '<input id="gs-range" type="range" min="65" max="' + Math.floor(curW - 1) + '" step="0.5" value="' + initTgt + '"/></div>' +
+        '<div id="gs-out" style="font-size:12px;color:var(--muted);"></div>' +
+        '<div id="gs-tdee" class="alert-row info" style="margin-top:10px;"></div></div>';
     } else if (m.kind === 'liver_sim') {
       const lw = getLatestWeight_(d.daily || []);
       const pct = lw ? (((108.3 - lw.w) / 108.3) * 100) : 5.17;
+      const latestBC = (d.daily || []).slice().reverse().find(function (r) { return r.visceral_fat !== ''; }) || {};
       body = '<div class="card">' +
-        '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px;"><span>Current: <strong>' + pct.toFixed(2) + '% lost</strong></span><span>7–10% Steatosis Resolution Zone</span></div>' +
+        '<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px;"><span>Current: <strong>−' + pct.toFixed(2) + '%</strong> · Visceral Fat: <strong>' + fmt(latestBC.visceral_fat) + '</strong></span><span>7–10% Steatosis Resolution</span></div>' +
         '<div class="bar-track"><div class="bar-fill" style="width:' + Math.min(100, pct * 10) + '%;background:var(--green);"></div></div>' +
+        '<div class="slider-row"><div style="display:flex;justify-content:space-between;font-size:12px;"><span>Target Weight-Loss Milestone</span><strong id="lv-w-val">8%</strong></div><input id="lv-w" type="range" min="5" max="15" value="8"/></div>' +
         '<div class="slider-row"><div style="display:flex;justify-content:space-between;font-size:12px;"><span>Weekly Strength Sessions</span><strong id="lv-s-val">2 / wk</strong></div><input id="lv-s" type="range" min="0" max="4" value="2"/></div>' +
         '<div class="slider-row"><div style="display:flex;justify-content:space-between;font-size:12px;"><span>Daily Fiber Target</span><strong id="lv-f-val">25 g/d</strong></div><input id="lv-f" type="range" min="10" max="35" value="25"/></div>' +
-        '<div id="lv-out" style="font-size:12px;color:var(--muted);margin-top:8px;"></div></div>';
+        '<div class="slider-row"><div style="display:flex;justify-content:space-between;font-size:12px;"><span>Added Sugar Cap</span><strong id="lv-sug-val">20 g/d</strong></div><input id="lv-sug" type="range" min="5" max="45" value="20"/></div>' +
+        '<div class="slider-row"><div style="display:flex;justify-content:space-between;font-size:12px;"><span>Daily Steps / Cardio</span><strong id="lv-st-val">6,500 / d</strong></div><input id="lv-st" type="range" min="3000" max="10000" step="500" value="6500"/></div>' +
+        '<div class="slider-row"><div style="display:flex;justify-content:space-between;font-size:12px;"><span>Daily Hydration</span><strong id="lv-hy-val">2.5 L/d</strong></div><input id="lv-hy" type="range" min="1.0" max="3.5" step="0.25" value="2.5"/></div>' +
+        '<div id="lv-out" class="alert-row info" style="margin-top:10px;"></div></div>';
+    } else if (m.kind === 'nutr_subtabs') {
+      const subSpecs = {
+        fiber: { field: 'fiber_g', lbl: 'Fiber', unit: 'g', color: '#22C55E', target: '25 g/d' },
+        sugar: { field: 'sugar_g', lbl: 'Added Sugar', unit: 'g', color: '#F472B6', target: '<25 g/d' },
+        water: { field: 'water_l', lbl: 'Hydration', unit: 'L', color: '#38BDF8', target: '2.5 L/d' }
+      };
+      const sp = subSpecs[STATE.nutrSubTab] || subSpecs.fiber;
+      body = '<div class="chips">' + Object.keys(subSpecs).map(function (k) {
+        return '<button class="chip ' + (STATE.nutrSubTab === k ? 'active' : '') + '" data-nsub="' + k + '">' + esc(subSpecs[k].lbl) + '</button>';
+      }).join('') + '</div><div class="card">' +
+        safeChart_('renderDetailChart', [{ rows: rows, field: sp.field, label1: sp.lbl, unit1: sp.unit, color: sp.color, kind: 'bar', overlays: STATE.overlays, legend: [{ color: sp.color, label: sp.lbl + ' (' + sp.target + ')' }] }], '') +
+        overlayTrayHtml_() + '</div>';
+    } else if (m.kind === 'stacked_sleep') {
+      body = '<div class="card">' + safeChart_('renderStackedSleepChart', [rows, STATE.overlays], '') + overlayTrayHtml_() + '</div>';
+    } else if (m.kind === 'activity_bench') {
+      const bm = d.habitSummary.benchmarks || {};
+      body = '<div class="card">' + safeChart_('renderActivityCorrelationChart', [rows, bm.stepsP90, STATE.overlays], '') + overlayTrayHtml_() + '</div>' +
+        '<div class="card"><h3 class="card-title">Sleep → Next-Day Workout Co-Occurrence ' + provBadge('Derived') + '</h3>' +
+        '<p class="card-sub">After ≥7h sleep: avg <strong>' + fmt(bm.goodSleepAvgWorkoutMins, 'min') + '</strong> (n=' + (bm.goodSleepN || 0) + ') vs. &lt;6h sleep: avg <strong>' + fmt(bm.shortSleepAvgWorkoutMins, 'min') + '</strong> (n=' + (bm.shortSleepN || 0) + '). <em>Associated, non-causal.</em></p></div>';
+    } else if (m.kind === 'symptoms_advanced') {
+      const symOpts = ['All', 'Belching', 'Reflux', 'Nausea', 'Headache', 'Fatigue', 'Bloating', 'Constipation'];
+      const cmpOpts = [
+        { id: 'sleep_hrs', lbl: 'Sleep (h)', unit: 'h', color: '#A855F7' },
+        { id: 'steps', lbl: 'Steps', unit: 'steps', color: '#F59E0B' },
+        { id: 'water_l', lbl: 'Hydration (L)', unit: 'L', color: '#38BDF8' },
+        { id: 'calories_kcal', lbl: 'Calories', unit: 'kcal', color: '#F472B6' }
+      ];
+      const cmp = cmpOpts.find(function (c) { return c.id === STATE.symptomCompare; }) || cmpOpts[0];
+      const evs = d.symptomsEvents || [];
+      const customCounts = rows.map(function (r) {
+        const dt = cleanDateStr_(r.date);
+        const matches = evs.filter(function (e) {
+          if (cleanDateStr_(e.date) !== dt) return false;
+          if (STATE.symptomFilter === 'All') return true;
+          return String(e.symptom || '').toLowerCase().indexOf(STATE.symptomFilter.toLowerCase()) !== -1;
+        });
+        return matches.length;
+      });
+      body = '<div class="chips">' + symOpts.map(function (s) {
+        return '<button class="chip ' + (STATE.symptomFilter === s ? 'active' : '') + '" data-symf="' + s + '">' + esc(s) + '</button>';
+      }).join('') + '</div><div class="chips">' + cmpOpts.map(function (c) {
+        return '<button class="chip ' + (STATE.symptomCompare === c.id ? 'active' : '') + '" data-symc="' + c.id + '">Compare: ' + esc(c.lbl) + '</button>';
+      }).join('') + '</div><div class="card">' +
+        safeChart_('renderDetailChart', [{
+          rows: rows, field: 'side_effect_count', customVals1: customCounts, field2: cmp.id,
+          label1: STATE.symptomFilter + ' Count', label2: cmp.lbl, unit2: cmp.unit,
+          color: '#38BDF8', color2: cmp.color, kind: 'pk_symptoms', showPk: true, shots: shots, overlays: STATE.overlays,
+          legend: [{ color: '#38BDF8', label: STATE.symptomFilter + ' Logs' }, { color: '#22C55E', label: 'Hourly Bateman PK Curve' }, { color: cmp.color, label: cmp.lbl }]
+        }], '') + overlayTrayHtml_() + '</div>';
     } else if (m.kind === 'bio_table') {
-      const audit = (d.bioAudit || []).slice().reverse().slice(0, 20);
-      body = '<div class="card"><table class="clean-tbl"><thead><tr><th>Date</th><th>Med / Supp</th><th>Status</th><th>Co-Factor</th><th>Assessment</th></tr></thead><tbody>' +
-        audit.map(function (r) {
-          return '<tr><td>' + esc(r.date) + '</td><td><strong>' + esc(r.med_or_supplement) + '</strong></td><td>' + esc(r.status) + '</td><td>' + esc(r.meal_cofactor_check) + '</td><td style="color:var(--blue);">' + esc(r.bioavailability_assessment) + '</td></tr>';
-        }).join('') + '</tbody></table></div>';
+      const medOpts = ['All', 'Thyronorm', 'Fish Oil', 'Trazer F Forte', 'Matilda Forte', 'Magnesium Glycinate'];
+      const auditAll = (d.bioAudit || []).slice().reverse();
+      const audit = STATE.medFilter === 'All' ? auditAll : auditAll.filter(function (r) {
+        return String(r.med_or_supplement || '').toLowerCase().indexOf(STATE.medFilter.toLowerCase()) !== -1;
+      });
+      const takenCnt = audit.filter(function (r) { return String(r.status || '').toLowerCase().indexOf('taken') !== -1; }).length;
+      const skipCnt = audit.filter(function (r) { return String(r.status || '').toLowerCase().indexOf('skip') !== -1 || String(r.status || '').toLowerCase().indexOf('miss') !== -1; }).length;
+      body = '<div class="chips">' + medOpts.map(function (mo) {
+        return '<button class="chip ' + (STATE.medFilter === mo ? 'active' : '') + '" data-medf="' + esc(mo) + '">' + esc(mo) + '</button>';
+      }).join('') + '</div><div class="grid-2">' +
+        tileHtml_('Taken Logs', takenCnt, STATE.medFilter + ' adherence', '#22C55E') +
+        tileHtml_('Skipped Logs', skipCnt, 'Strictly tagged Skipped (never misclassified)', '#F59E0B') +
+      '</div><div class="card"><table class="clean-tbl"><thead><tr><th>Date</th><th>Time</th><th>Med / Supp</th><th>Status</th><th>Fasting / Co-Factor</th><th>Assessment</th></tr></thead><tbody>' +
+        audit.slice(0, 25).map(function (r) {
+          const isSkip = String(r.bioavailability_assessment || '').toLowerCase() === 'skipped';
+          return '<tr><td>' + esc(fmtDateIN_(r.date)) + '</td><td>' + esc(r.time || '—') + '</td><td><strong>' + esc(r.med_or_supplement) + '</strong></td><td>' + esc(r.status) + '</td><td>' + esc(r.meal_cofactor_check || '') + '</td><td style="color:' + (isSkip ? 'var(--amber)' : 'var(--blue)') + ';">' + esc(r.bioavailability_assessment) + '</td></tr>';
+        }).join('') + '</tbody></table></div>' +
+        '<div class="grid-2">' +
+          '<div class="card"><h3 class="card-title">Thyronorm Stabilization ' + provBadge('Window') + '</h3><p class="card-sub">100 mcg Mon–Sat (10-11-2026) · ~7-day t½ steady state; TSH equilibration window 6–8 wks (retest late Dec 2026).</p></div>' +
+          '<div class="card"><h3 class="card-title">IV Iron Repletion ' + provBadge('Window') + '</h3><p class="card-sub">Orofer FCM 1000 mg (10-10-2026) · Hb/Ferritin stabilization peak at 6–8 wks (retest window OPEN NOW).</p></div>' +
+        '</div>';
     } else if (m.kind === 'labs_view') {
-      const labs = (d.labs || []).slice().reverse().slice(0, 35);
-      body = '<div class="card"><h3 class="card-title">HbA1c &amp; Glycemic Model Band ' + provBadge('Model') + '</h3>' +
-        '<p class="card-sub" style="margin-bottom:10px;">Baseline Sept 2026: HbA1c 6.2%, FBS 136.2 mg/dL, Insulin 34.0 mcU/mL. With tirzepatide 5mg + low sugar + weight loss, clinical trial kinetics suggest an estimated 12–16 wk HbA1c band of <strong>5.4%–5.7%</strong> (verify via real blood draw in Jan 2027).</p>' +
-        '<table class="clean-tbl"><thead><tr><th>Date</th><th>Test</th><th>Value</th><th>Ref Range</th><th>Flag</th></tr></thead><tbody>' +
-        labs.map(function (l) {
-          return '<tr><td>' + esc(l.test_date) + '</td><td>' + esc(l.standardized_test_name) + '</td><td><strong>' + esc(l.value) + ' ' + esc(l.unit) + '</strong></td><td style="color:var(--muted);">' + esc(l.reference_range) + '</td><td style="color:var(--amber);">' + esc(l.abnormal_flag) + '</td></tr>';
+      const bioTabs = [
+        { id: 'HbA1c', match: ['hba1c'], refMin: 4.8, refMax: 5.6, projLo: 5.4, projHi: 5.7, unit: '%' },
+        { id: 'Fasting Glucose', match: ['fasting blood glucose', 'fbs'], refMin: 70, refMax: 99, projLo: 95, projHi: 112, unit: 'mg/dL' },
+        { id: 'Fasting Insulin', match: ['insulin'], refMin: 2.6, refMax: 24.9, projLo: 14, projHi: 22, unit: 'mcU/mL' },
+        { id: 'Lipids / VLDL', match: ['triglyceride', 'vldl', 'hdl'], refMin: 40, refMax: 150, projLo: 120, projHi: 155, unit: 'mg/dL' },
+        { id: 'Iron / Ferritin', match: ['ferritin', 'hemoglobin', 'haemoglobin'], refMin: 20, refMax: 150, projLo: 55, projHi: 110, unit: 'ng/mL' },
+        { id: 'Vitamin D', match: ['vitamin d', '25-oh'], refMin: 30, refMax: 100, projLo: 35, projHi: 55, unit: 'ng/mL' },
+        { id: 'Vitamin B12', match: ['b12'], refMin: 211, refMax: 911, projLo: 420, projHi: 680, unit: 'pg/mL' },
+        { id: 'TSH', match: ['tsh'], refMin: 0.4, refMax: 4.5, projLo: 2.0, projHi: 4.0, unit: 'uIU/mL' }
+      ];
+      const curTab = bioTabs.find(function (t) { return t.id === STATE.labTab; }) || bioTabs[0];
+      const labRows = (d.labs || []).filter(function (l) {
+        const nm = String(l.standardized_test_name || '').toLowerCase();
+        const dt = cleanDateStr_(l.test_date);
+        const yrOk = STATE.labYearCutoff === 'all' || dt >= '2022-01-01';
+        return yrOk && curTab.match.some(function (k) { return nm.indexOf(k) !== -1; });
+      }).sort(function (a, b) { return cleanDateStr_(a.test_date).localeCompare(cleanDateStr_(b.test_date)); });
+      const pts = labRows.map(function (l) { return { date: l.test_date, val: parseFloat(String(l.value || '').replace(/[^0-9.]/g, '')) }; }).filter(function (p) { return !isNaN(p.val); });
+
+      body = '<div class="chips">' + bioTabs.map(function (t) {
+        return '<button class="chip ' + (STATE.labTab === t.id ? 'active' : '') + '" data-ltab="' + esc(t.id) + '">' + esc(t.id) + '</button>';
+      }).join('') + '</div><div class="chips">' +
+        '<button class="chip ' + (STATE.labYearCutoff === '2022' ? 'active' : '') + '" data-lyr="2022">Since 2022</button>' +
+        '<button class="chip ' + (STATE.labYearCutoff === 'all' ? 'active' : '') + '" data-lyr="all">All Years (2020–2026)</button></div>' +
+        '<div class="card">' + safeChart_('renderBiomarkerChart', [pts, curTab.refMin, curTab.refMax, curTab.projLo, curTab.projHi, curTab.unit], '') + '</div>' +
+        '<div class="card"><table class="clean-tbl"><thead><tr><th>Date</th><th>Test</th><th>Value</th><th>Ref Range</th><th>Flag</th></tr></thead><tbody>' +
+        labRows.slice().reverse().map(function (l) {
+          return '<tr><td>' + esc(fmtDateIN_(l.test_date)) + '</td><td>' + esc(l.standardized_test_name) + '</td><td><strong>' + esc(l.value + ' ' + l.unit) + '</strong></td><td style="color:var(--muted);">' + esc(l.reference_range) + '</td><td style="color:var(--amber);">' + esc(l.abnormal_flag) + '</td></tr>';
         }).join('') + '</tbody></table></div>';
     } else if (m.kind === 'cycle_view') {
-      const cyc = (d.menstrual || []).slice(0, 18);
-      body = '<div class="card"><table class="clean-tbl"><thead><tr><th>Cycle Start</th><th>Length (d)</th><th>Flow Days</th><th>Era</th><th>Source</th></tr></thead><tbody>' +
+      const cyc = (d.menstrual || []).slice(0, 20);
+      body = '<div class="card">' +
+        '<div class="chart-legend"><span class="leg-item"><span class="leg-dot flow-heavy"></span>Heavy</span><span class="leg-item"><span class="leg-dot flow-medium"></span>Medium</span><span class="leg-item"><span class="leg-dot flow-light"></span>Light</span><span class="leg-item"><span class="leg-dot flow-spotting"></span>Spotting</span><span class="leg-item"><span class="leg-dot flow-unmarked"></span>Unmarked Flow</span></div>' +
         cyc.map(function (c) {
-          return '<tr><td>' + esc(c.cycle_start) + '</td><td><strong>' + esc(c.cycle_length_days) + '</strong></td><td>' + esc(c.marked_flow_days) + '</td><td>' + esc(c.era_tag) + '</td><td style="color:var(--muted);">' + esc(c.source_app) + '</td></tr>';
-        }).join('') + '</tbody></table></div>';
+          const len = Number(c.cycle_length_days) || 30;
+          const pDays = Number(c.total_period_days) || Number(c.marked_flow_days) || 0;
+          let segs = [];
+          try { segs = JSON.parse(c.flow_segments_json || '[]'); } catch (e) {}
+          if (!segs.length && pDays > 0) { for (let k = 0; k < pDays; k++) segs.push('Flow Unmarked'); }
+          const segHtml = segs.map(function (lv) {
+            const l = String(lv).toLowerCase();
+            const cls = l.indexOf('heavy') !== -1 ? 'flow-heavy' : (l.indexOf('med') !== -1 ? 'flow-medium' : (l.indexOf('light') !== -1 ? 'flow-light' : (l.indexOf('spot') !== -1 ? 'flow-spotting' : 'flow-unmarked')));
+            return '<div class="' + cls + '" style="width:' + (100 / Math.max(len, segs.length, 28)).toFixed(1) + '%;height:100%;" title="' + esc(lv) + '"></div>';
+          }).join('');
+          return '<div class="cycle-bar-row"><span>' + esc(fmtDateIN_(c.cycle_start)) + '</span><div class="cycle-track">' + segHtml + '</div><span style="text-align:right;color:var(--muted);">' + (c.cycle_length_days || '—') + 'd · ' + pDays + 'p</span></div>';
+        }).join('') + '</div>';
     } else if (m.kind === 'smoking_view' && STATE.smokingData) {
       const sm = STATE.smokingData;
       body = '<div class="card"><div class="grid-3">' +
         tileHtml_('Smoked', sm.totalCigarettesSmoked, 'Logged events', '#F472B6') +
         tileHtml_('Cravings Resisted', sm.cravingsResisted, 'Every urge beaten counts!', '#22C55E') +
-        tileHtml_('Avg Delay', fmt(sm.avgDelayMinutes, 'min'), 'Craving intensity ' + fmt(sm.avgCravingIntensity), '#38BDF8') +
+        tileHtml_('Avg Delay', fmt(sm.avgDelayMinutes, 'min'), 'Intensity ' + fmt(sm.avgCravingIntensity), '#38BDF8') +
         '</div><div class="alert-row info" style="margin-top:10px;"><strong>Sleep Co-Occurrence (' + esc(sm.coOccurrenceNote.label) + '):</strong> ' +
-        esc(sm.coOccurrenceNote.note || ('Avg sleep on smoked days: ' + sm.coOccurrenceNote.avgSleepHrsOnSmokedDays + 'h (n=' + sm.coOccurrenceNote.n + ')')) + '</div>' +
-        '<div class="alert-row" style="margin-top:8px;"><strong>Health Motivation:</strong> Reducing cigarettes directly lowers reflux/GERD irritation, improves resting heart rate &amp; HRV, and compounds the cardiovascular gains of your weight loss.</div></div>';
+        esc(sm.coOccurrenceNote.note || ('Avg sleep on smoked days: ' + fmtHrsMin_(sm.coOccurrenceNote.avgSleepHrsOnSmokedDays) + ' (n=' + sm.coOccurrenceNote.n + ')')) + '</div></div>';
     } else {
       body = '<div class="card">' + safeChart_('renderDetailChart', [{
-        rows: rows, field: m.field, field2: m.field2, qualityField: m.qualityField,
-        color: m.color, color2: m.color2, kind: m.kind, minY: m.minY, maxY: m.maxY, overlays: STATE.overlays
-      }], '<div style="padding:24px;text-align:center;color:var(--muted);font-size:12px;">Chart unavailable</div>') + '<div class="overlay-tray">' +
-        ['jabs:Jab days', 'meds:Med/Supp changes', 'period:Period', 'workouts:Strength', 'poorSleep:Poor sleep (<6h)'].map(function (pair) {
-          const p = pair.split(':');
-          return '<button class="ov-pill ' + (STATE.overlays[p[0]] ? 'on' : '') + '" data-ov="' + p[0] + '">' + esc(p[1]) + '</button>';
-        }).join('') + '</div></div>';
+        rows: rows, field: m.field, field2: m.field2, label1: m.label1, label2: m.label2, unit1: m.unit1, unit2: m.unit2,
+        color: m.color, color2: m.color2, kind: m.kind, minY: m.minY, maxY: m.maxY,
+        showPk: m.showPk, shots: shots, dayGrid: m.dayGrid, showHrSpikes: m.showHrSpikes,
+        legend: m.legend, overlays: STATE.overlays
+      }], '') + overlayTrayHtml_(m.allowedOverlays) + '</div>';
+
       if (m.id === 'mood_impact') {
-        body += '<div class="card"><h3 class="card-title">49-Day Cross-Domain Logging Heatmap</h3>' + safeChart_('renderHeatmap', [d.daily || []], '<div style="color:var(--muted);font-size:12px;">Heatmap unavailable</div>') + '</div>';
-      }
-      if (m.kind === 'activity_bench') {
-        const bm = d.habitSummary.benchmarks || {};
-        body += '<div class="card"><h3 class="card-title">Sleep → Next-Day Workout Co-Occurrence ' + provBadge('Derived') + '</h3>' +
-          '<p class="card-sub">After ≥7h sleep: avg <strong>' + fmt(bm.goodSleepAvgWorkoutMins, 'min') + '</strong> (n=' + (bm.goodSleepN || 0) + ') vs. &lt;6h sleep: avg <strong>' + fmt(bm.shortSleepAvgWorkoutMins, 'min') + '</strong> (n=' + (bm.shortSleepN || 0) + '). <em>Associated, non-causal.</em></p></div>';
+        const hi = (d.daily || []).filter(function (r) { return r.glapp_mood !== '' && Number(r.glapp_mood) >= 3; });
+        const lo = (d.daily || []).filter(function (r) { return r.glapp_mood !== '' && Number(r.glapp_mood) <= 2; });
+        const avgF = function (arr, f) {
+          const vs = arr.map(function (r) { return r[f] === '' || r[f] == null ? null : Number(r[f]); }).filter(function (v) { return v !== null; });
+          return vs.length ? (vs.reduce(function (a, b) { return a + b; }, 0) / vs.length).toFixed(1) : '—';
+        };
+        body += '<div class="card"><h3 class="card-title">Good Mood Days vs. Low Mood Days ' + provBadge('Derived') + '</h3>' +
+          '<table class="clean-tbl"><thead><tr><th>Metric</th><th>Good Mood (≥3, n=' + hi.length + ')</th><th>Low Mood (≤2, n=' + lo.length + ')</th></tr></thead><tbody>' +
+          '<tr><td>Sleep</td><td><strong>' + fmtHrsMin_(avgF(hi, 'sleep_hrs')) + '</strong></td><td>' + fmtHrsMin_(avgF(lo, 'sleep_hrs')) + '</td></tr>' +
+          '<tr><td>Steps</td><td><strong>' + avgF(hi, 'steps') + '</strong></td><td>' + avgF(lo, 'steps') + '</td></tr>' +
+          '<tr><td>Protein (g)</td><td><strong>' + avgF(hi, 'protein_g') + '</strong></td><td>' + avgF(lo, 'protein_g') + '</td></tr>' +
+          '<tr><td>Fiber (g)</td><td><strong>' + avgF(hi, 'fiber_g') + '</strong></td><td>' + avgF(lo, 'fiber_g') + '</td></tr>' +
+          '<tr><td>Hydration (L)</td><td><strong>' + avgF(hi, 'water_l') + '</strong></td><td>' + avgF(lo, 'water_l') + '</td></tr>' +
+          '</tbody></table></div>' +
+          '<div class="card"><h3 class="card-title">49-Day Cross-Domain Logging Heatmap</h3>' + safeChart_('renderHeatmap', [d.daily || []], '') + '</div>';
       }
     }
 
-    const html =
-      '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">' +
-        '<button class="btn-ghost" id="btn-detail-back">← Back</button>' + provBadge(m.prov) +
-      '</div>' +
-      '<h2 style="margin:12px 0 2px 0;font-size:19px;">' + esc(m.title) + '</h2>' +
-      '<div style="font-size:12px;color:var(--muted);">' + esc(m.val) + ' · ' + esc(m.sub) + '</div>' +
-      '<div class="seg-bar">' + ['W', 'M', '3M', '6M', 'Y', 'All'].map(function (r) {
-        return '<button class="seg-btn ' + (STATE.detailRange === r ? 'active' : '') + '" data-rng="' + r + '">' + r + '</button>';
-      }).join('') + '</div>' +
-      body +
-      '<div class="card"><h3 class="card-title">About &amp; Data Coverage</h3>' +
-        '<p class="card-sub">' + esc(m.about) + '</p>' +
-        '<div style="font-size:11px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">' +
-          'Valid observations: <strong>' + (cov.validDays || 0) + '/' + (cov.totalDays || 0) + '</strong> (' + (cov.coveragePct || 0) + '%) · Range: ' + esc(cov.firstDate || '—') + ' → ' + esc(cov.latestDate || '—') +
-        '</div></div>';
+    const segBar = m.noRangeBar ? '' : ('<div class="seg-bar">' + ['W', 'M', '3M', '6M', 'Y', 'All'].map(function (r) {
+      return '<button class="seg-btn ' + (STATE.detailRange === r ? 'active' : '') + '" data-rng="' + r + '">' + r + '</button>';
+    }).join('') + '</div>');
 
     const box = document.getElementById('detail-content');
-    box.innerHTML = html;
-    document.getElementById('btn-detail-back').addEventListener('click', function () {
-      document.getElementById('detail-overlay').classList.remove('open');
-    });
-    box.querySelectorAll('[data-rng]').forEach(function (b) {
-      b.addEventListener('click', function () { STATE.detailRange = b.dataset.rng; renderDetailScreen(); });
-    });
-    box.querySelectorAll('[data-ov]').forEach(function (b) {
-      b.addEventListener('click', function () { STATE.overlays[b.dataset.ov] = !STATE.overlays[b.dataset.ov]; renderDetailScreen(); });
-    });
+    box.innerHTML =
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;"><button class="btn-ghost" id="btn-detail-back">← Back</button>' + provBadge(m.prov) + '</div>' +
+      '<h2 style="margin:12px 0 2px 0;font-size:19px;">' + esc(m.title) + '</h2>' +
+      '<div style="font-size:12px;color:var(--muted);">' + esc(m.val) + ' · ' + esc(m.sub) + '</div>' +
+      segBar + body +
+      '<div class="card"><h3 class="card-title">About &amp; Data Coverage</h3><p class="card-sub">' + esc(m.about) + '</p>' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">' +
+      'Valid observations: <strong>' + (cov.validDays || 0) + '/' + (cov.totalDays || 0) + '</strong> (' + (cov.coveragePct || 0) + '%) · Range: ' + esc(fmtDateIN_(cov.firstDate)) + ' → ' + esc(fmtDateIN_(cov.latestDate)) + '</div></div>';
 
-    // Wire interactive What-If sliders
+    document.getElementById('btn-detail-back').addEventListener('click', function () { document.getElementById('detail-overlay').classList.remove('open'); });
+    box.querySelectorAll('[data-rng]').forEach(function (b) { b.addEventListener('click', function () { STATE.detailRange = b.dataset.rng; renderDetailScreen(); }); });
+    box.querySelectorAll('[data-ov]').forEach(function (b) { b.addEventListener('click', function () { STATE.overlays[b.dataset.ov] = !STATE.overlays[b.dataset.ov]; renderDetailScreen(); }); });
+    box.querySelectorAll('[data-nsub]').forEach(function (b) { b.addEventListener('click', function () { STATE.nutrSubTab = b.dataset.nsub; renderDetailScreen(); }); });
+    box.querySelectorAll('[data-symf]').forEach(function (b) { b.addEventListener('click', function () { STATE.symptomFilter = b.dataset.symf; renderDetailScreen(); }); });
+    box.querySelectorAll('[data-symc]').forEach(function (b) { b.addEventListener('click', function () { STATE.symptomCompare = b.dataset.symc; renderDetailScreen(); }); });
+    box.querySelectorAll('[data-medf]').forEach(function (b) { b.addEventListener('click', function () { STATE.medFilter = b.dataset.medf; renderDetailScreen(); }); });
+    box.querySelectorAll('[data-ltab]').forEach(function (b) { b.addEventListener('click', function () { STATE.labTab = b.dataset.ltab; renderDetailScreen(); }); });
+    box.querySelectorAll('[data-lyr]').forEach(function (b) { b.addEventListener('click', function () { STATE.labYearCutoff = b.dataset.lyr; renderDetailScreen(); }); });
+
+    // Wire Goal Path SVG + TDEE Metabolic Adaptation Simulator
     const gs = document.getElementById('gs-range');
     if (gs) {
+      const wRows = (d.daily || []).filter(function (r) { return r.weight_kg !== '' && r.weight_kg != null; });
+      const cur = wRows.length ? Number(wRows[wRows.length - 1].weight_kg) : 102.7;
       const updGs = function () {
-        const lw = getLatestWeight_(d.daily || []);
-        const cur = lw ? lw.w : 102.7, tgt = Number(gs.value), rate = 0.76;
-        const wks = Math.max(0, (cur - tgt) / rate);
-        const dt = new Date(Date.now() + wks * 7 * 86400000).toISOString().slice(0, 10);
+        const tgt = Number(gs.value), rate = 0.76, wks = Math.max(0, (cur - tgt) / rate);
+        const dtIso = new Date(Date.now() + wks * 7 * 86400000).toISOString().slice(0, 10);
         document.getElementById('gs-val').textContent = tgt.toFixed(1) + ' kg';
-        document.getElementById('gs-out').innerHTML = 'Remaining: <strong>' + (cur - tgt).toFixed(1) + ' kg</strong> · Projected arrival (~0.76 kg/wk): <strong style="color:var(--green);">' + dt + '</strong> (~' + wks.toFixed(1) + ' wks, ±20% band).';
+        document.getElementById('gs-svg-box').innerHTML = safeChart_('renderGoalTrajectoryChart', [wRows, tgt, rate], '');
+        document.getElementById('gs-out').innerHTML = 'Remaining: <strong>' + (cur - tgt).toFixed(1) + ' kg</strong> · Projected arrival (~0.76 kg/wk): <strong style="color:var(--green);">' + fmtDateIN_(dtIso) + '</strong> (~' + wks.toFixed(1) + ' wks, ±20% band).';
+        const estTdeeAtTgt = Math.round(1400 + (tgt - 68) * 14);
+        document.getElementById('gs-tdee').innerHTML = '<strong>Metabolic Adaptation Insight:</strong> At ~' + tgt.toFixed(1) + ' kg, estimated maintenance TDEE narrows toward ~<strong>' + estTdeeAtTgt + ' kcal/d</strong>. Maintaining ~1,400 kcal/d + 2×/wk strength training protects BMR and delays plateaus.';
       };
       gs.addEventListener('input', updGs);
       updGs();
     }
-    const lvS = document.getElementById('lv-s'), lvF = document.getElementById('lv-f');
-    if (lvS && lvF) {
+
+    // Wire Multi-Driver Fatty Liver Simulator
+    const lvW = document.getElementById('lv-w');
+    if (lvW) {
       const updLv = function () {
-        const s = Number(lvS.value), f = Number(lvF.value);
+        const wPct = Number(lvW.value), s = Number(document.getElementById('lv-s').value), f = Number(document.getElementById('lv-f').value),
+              sug = Number(document.getElementById('lv-sug').value), st = Number(document.getElementById('lv-st').value), hy = Number(document.getElementById('lv-hy').value);
+        document.getElementById('lv-w-val').textContent = wPct + '%';
         document.getElementById('lv-s-val').textContent = s + ' / wk';
         document.getElementById('lv-f-val').textContent = f + ' g/d';
-        const score = (s >= 2 ? 1 : 0) + (f >= 22 ? 1 : 0);
-        const eta = score === 2 ? '6–8 weeks (accelerated)' : score === 1 ? '8–10 weeks' : '10–12 weeks';
-        document.getElementById('lv-out').innerHTML = '<strong>Estimated 7% Steatosis Resolution Zone (100.7 kg):</strong> <span style="color:var(--green);">' + eta + '</span> · Confirm via follow-up ultrasound/LFTs.';
+        document.getElementById('lv-sug-val').textContent = sug + ' g/d';
+        document.getElementById('lv-st-val').textContent = st + ' / d';
+        document.getElementById('lv-hy-val').textContent = hy.toFixed(2) + ' L/d';
+        const pts = (wPct >= 7 ? 2 : 1) + (s >= 2 ? 1 : 0) + (f >= 22 ? 1 : 0) + (sug <= 20 ? 1 : 0) + (st >= 6000 ? 1 : 0) + (hy >= 2.2 ? 1 : 0);
+        const zone = pts >= 6 ? 'High-Probability Steatosis Resolution (6–10 wks)' : (pts >= 4 ? 'Steady Hepatic Fat Clearance (10–14 wks)' : 'Moderate Pace (14–20 wks)');
+        document.getElementById('lv-out').innerHTML = '<strong>Projected Outcome:</strong> <span style="color:var(--green);">' + zone + '</span><br/><strong>Clinical Rationale:</strong> ≥7–10% weight loss mobilizes intrahepatic triglycerides; capping added sugar lowers hepatic de novo lipogenesis; strength + cardio improve insulin sensitivity; soluble fiber &amp; hydration support gut-liver axis clearance.';
       };
-      lvS.addEventListener('input', updLv); lvF.addEventListener('input', updLv); updLv();
+      ['lv-w', 'lv-s', 'lv-f', 'lv-sug', 'lv-st', 'lv-hy'].forEach(function (id) { document.getElementById(id).addEventListener('input', updLv); });
+      updLv();
     }
   }
 
-  // ==================== TAB 3: REPORTS (WEEKLY + MONTHLY + DOCTOR BRIEF) ====================
+  // ==================== TAB 3: REPORTS ====================
   function renderReports() {
-    const d = STATE.data;
-    const weeks = d.weekly || [];
-    const wk = weeks[STATE.selectedWeekIdx] || weeks[weeks.length - 1] || {};
-    const months = d.monthly || [];
+    const d = STATE.data, weeks = d.weekly || [], wk = weeks[STATE.selectedWeekIdx] || weeks[weeks.length - 1] || {}, months = d.monthly || [];
 
-    let html = '<div class="card no-print">';
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">' +
-      '<div><h2 class="card-title">Friday Weekly Review (Thu → Wed)</h2><p class="card-sub">Historical backfill since GLP-1 start (Oct 21)</p></div>' +
-      '<select id="wk-select" class="btn-ghost">' + weeks.map(function (w, i) {
-        return '<option value="' + i + '" ' + (i === STATE.selectedWeekIdx ? 'selected' : '') + '>' + esc(w.week_num + ' · ' + w.week_start_thu + ' → ' + w.week_end_wed) + '</option>';
-      }).join('') + '</select></div>';
+    let html = '<div class="card no-print">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">' +
+        '<div><h2 class="card-title">Friday Weekly Review (Thu → Wed)</h2><p class="card-sub">Historical backfill since 21-10-2026</p></div>' +
+        '<select id="wk-select" class="btn-ghost">' + weeks.map(function (w, i) {
+          return '<option value="' + i + '" ' + (i === STATE.selectedWeekIdx ? 'selected' : '') + '>' + esc(w.week_num + ' · ' + fmtDateIN_(w.week_start_thu) + ' → ' + fmtDateIN_(w.week_end_wed)) + '</option>';
+        }).join('') + '</select></div>';
 
-    // Strict Thursday Pending close + separate last available weight & Oct 7 delta
-    const closeDisp = wk.thu_weight_status === 'Pending'
-      ? '<span style="color:var(--amber);">Pending</span>'
-      : (esc(wk.close_thu_weight_kg) + ' kg');
+    const closeDisp = wk.thu_weight_status === 'Pending' ? '<span style="color:var(--amber);">Pending</span>' : (esc(wk.close_thu_weight_kg) + ' kg');
+    const carbFlag = (wk.avg_carbs_g !== '' && Number(wk.avg_carbs_g) > 150) ? ' ⚠' : '';
+    const fatFlag = (wk.avg_fat_g !== '' && Number(wk.avg_fat_g) > 65) ? ' ⚠' : '';
+
     html += '<div class="grid-3" style="margin-top:12px;">' +
-      tileHtml_('Open Thu Weight', fmt(wk.open_thu_weight_kg, 'kg'), 'Thu ' + esc(wk.week_start_thu || ''), '#22C55E') +
-      tileHtml_('Close Thu Weight', closeDisp, 'Thu ' + esc(wk.closing_thu_date || '') + ' (' + esc(wk.thu_weight_status || '') + ')', '#B85A9E') +
-      tileHtml_('vs. Oct 7 Baseline', fmt(wk.delta_vs_oct7_kg, 'kg'), fmt(wk.delta_vs_oct7_pct, '%') + ' · Last: ' + fmt(wk.last_avail_weight_kg, 'kg') + ' (' + esc(wk.last_avail_weight_date || '') + ')', '#38BDF8') +
-      tileHtml_('Nutrition Avg', fmt(wk.avg_protein_g, 'g prot'), fmt(wk.avg_calories, 'kcal') + ' · ' + fmt(wk.avg_fiber_g, 'g fiber') + ' (' + (wk.nutrition_logged_days || 0) + '/7d)', '#F59E0B') +
-      tileHtml_('Activity & Sleep', fmt(wk.avg_steps, 'steps'), fmt(wk.avg_sleep_hrs, 'h sleep') + ' · ' + (wk.strength_sessions || 0) + ' strength', '#A855F7') +
-      tileHtml_('Dose Response', fmt(wk.dose_mg, 'mg'), 'Hunger ' + fmt(wk.avg_hunger) + ' · Noise ' + fmt(wk.avg_food_noise) + ' · ' + (wk.total_side_effects || 0) + ' SE', '#F472B6') +
-    '</div>';
+      tileHtml_('Open Thu Weight', fmt(wk.open_thu_weight_kg, 'kg'), 'Thu ' + fmtDateIN_(wk.week_start_thu), '#22C55E') +
+      tileHtml_('Close Thu Weight', closeDisp, 'Thu ' + fmtDateIN_(wk.closing_thu_date) + ' (' + esc(wk.thu_weight_status || '') + ')', '#B85A9E') +
+      tileHtml_('vs. 07-10-2026 Baseline', fmt(wk.delta_vs_oct7_kg, 'kg'), fmt(wk.delta_vs_oct7_pct, '%') + ' · Last: ' + fmt(wk.last_avail_weight_kg, 'kg') + ' (' + fmtDateIN_(wk.last_avail_weight_date) + ')', '#38BDF8') +
+      tileHtml_('Nutrition Avg', 'Clean ' + fmt(wk.clean_eating_score, '/100'), 'P ' + fmt(wk.avg_protein_g, 'g') + ' · C ' + fmt(wk.avg_carbs_g, 'g') + carbFlag + ' · F ' + fmt(wk.avg_fat_g, 'g') + fatFlag + ' · Fib ' + fmt(wk.avg_fiber_g, 'g'), '#F59E0B') +
+      tileHtml_('Activity & Sleep', fmt(wk.avg_steps, 'steps'), fmtHrsMin_(wk.avg_sleep_hrs) + ' · REM ' + fmt(wk.avg_rem_mins, 'm') + ' · ' + (wk.strength_sessions || 0) + ' strength', '#A855F7') +
+      tileHtml_('Dose Response', fmt(wk.dose_mg, 'mg'), 'Hunger ' + fmt(wk.avg_hunger) + ' · Noise ' + fmt(wk.avg_food_noise) + ' · ' + (wk.total_side_effects || 0) + ' symptoms', '#F472B6') +
+    '</div><div class="alert-row info" style="margin-top:10px;"><strong>Weekly Habit Review vs. Prior Week:</strong> ' + esc(wk.habit_delta_vs_prev_week || 'Baseline week') + '</div></div>';
 
-    html += '<div class="alert-row info" style="margin-top:10px;"><strong>Weekly Habit Review vs. Prior Week:</strong> ' + esc(wk.habit_delta_vs_prev_week || 'Baseline week') + '</div>';
-    html += '</div>';
-
-    // Monthly Review Card
-    html += '<div class="card no-print"><h2 class="card-title">Monthly Clinical &amp; Habit Summaries</h2>' +
-      '<table class="clean-tbl" style="margin-top:6px;"><thead><tr><th>Month</th><th>Start→End kg</th><th>Protein</th><th>Fiber</th><th>Steps</th><th>Strength</th><th>Sleep</th></tr></thead><tbody>' +
+    // Upgraded Monthly Clinical & Habit Summaries (Target Attainment Badges + Logged-Day Denominators)
+    html += '<div class="card no-print"><h2 class="card-title">Monthly Clinical &amp; Habit Summaries</h2><p class="card-sub" style="margin-bottom:8px;">Includes target attainment (Protein ≥100g, Fiber ≥25g, Steps ≥6,000, Sleep ≥7h) &amp; logged-day coverage</p>' +
       months.map(function (m) {
-        return '<tr><td><strong>' + esc(m.month) + '</strong></td><td>' + fmt(m.start_weight_kg) + ' → ' + fmt(m.end_weight_kg) + '</td><td>' + fmt(m.avg_protein_g, 'g') + '</td><td>' + fmt(m.avg_fiber_g, 'g') + '</td><td>' + fmt(m.avg_steps) + '</td><td>' + fmt(m.strength_sessions) + '</td><td>' + fmt(m.avg_sleep_hrs, 'h') + '</td></tr>';
-      }).join('') + '</tbody></table></div>';
+        const dim = m.days_in_month || 30;
+        const pOk = Number(m.avg_protein_g) >= 100, fOk = Number(m.avg_fiber_g) >= 25, sOk = Number(m.avg_steps) >= 6000, slOk = Number(m.avg_sleep_hrs) >= 7;
+        return '<div style="padding:10px;border-radius:12px;background:var(--card-2);margin-bottom:8px;font-size:12px;">' +
+          '<div style="display:flex;justify-content:space-between;font-weight:700;margin-bottom:6px;"><span>' + esc(m.month) + '</span><span>Weight: ' + fmt(m.start_weight_kg) + ' → ' + fmt(m.end_weight_kg, 'kg') + ' (' + fmt(m.delta_kg, 'kg') + ')</span></div>' +
+          '<div class="grid-2" style="margin-bottom:6px;gap:6px;">' +
+            '<div>Protein: <span class="' + (pOk ? 'badge-ok' : 'badge-miss') + '">' + fmt(m.avg_protein_g, 'g') + ' / 100g ' + (pOk ? '✓' : '·') + '</span> <span style="color:var(--muted);">(' + (m.nutrition_logged_days || '—') + '/' + dim + 'd)</span></div>' +
+            '<div>Fiber: <span class="' + (fOk ? 'badge-ok' : 'badge-miss') + '">' + fmt(m.avg_fiber_g, 'g') + ' / 25g ' + (fOk ? '✓' : '·') + '</span></div>' +
+            '<div>Steps: <span class="' + (sOk ? 'badge-ok' : 'badge-miss') + '">' + fmt(m.avg_steps) + ' / 6,000 ' + (sOk ? '✓' : '·') + '</span> <span style="color:var(--muted);">(' + (m.steps_logged_days || '—') + '/' + dim + 'd)</span></div>' +
+            '<div>Sleep: <span class="' + (slOk ? 'badge-ok' : 'badge-miss') + '">' + fmtHrsMin_(m.avg_sleep_hrs) + ' / 7h ' + (slOk ? '✓' : '·') + '</span> <span style="color:var(--muted);">(' + (m.sleep_logged_days || '—') + '/' + dim + 'd)</span></div>' +
+          '</div>' +
+          '<div style="font-size:11px;color:var(--muted);">Strength: <strong>' + (m.strength_sessions || 0) + '</strong> sessions · Clean Eating Score: <strong>' + fmt(m.clean_eating_score, '/100') + '</strong> · Goals Met: <strong>' + ((pOk?1:0)+(fOk?1:0)+(sOk?1:0)+(slOk?1:0)) + '/4</strong></div></div>';
+      }).join('') + '</div>';
 
-    // Whole-Body Printable Doctor Visit Brief
-    html += '<div class="card" id="doctor-brief-card">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">' +
-        '<div><h2 class="card-title">Whole-Body Doctor Visit Brief</h2><p class="card-sub">Diagnoses, meds, procedures, imaging, longitudinal labs &amp; GI tolerability</p></div>' +
-        '<div class="no-print" style="display:flex;gap:8px;">' +
-          '<button class="btn-ghost" id="btn-load-brief">Load / Refresh Brief</button>' +
-          '<button class="btn-primary" id="btn-print-brief" style="width:auto;padding:8px 14px;">Print / Save PDF</button>' +
-        '</div>' +
-      '</div>' +
-      '<div id="doctor-brief-body" style="margin-top:12px;">' +
-        (STATE.doctorBrief ? renderDoctorBriefHtml_(STATE.doctorBrief) : '<p class="card-sub">Tap <strong>Load / Refresh Brief</strong> to assemble your live whole-body clinical summary from AggregatedMedicalRecords.</p>') +
-      '</div></div>';
+    // Whole-Body Doctor Visit Brief
+    html += '<div class="card" id="doctor-brief-card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">' +
+      '<div><h2 class="card-title">Whole-Body Doctor Visit Brief</h2><p class="card-sub">Diagnoses, meds, procedures, imaging, longitudinal labs &amp; GI tolerability</p></div>' +
+      '<div class="no-print" style="display:flex;gap:8px;"><button class="btn-ghost" id="btn-load-brief">Load / Refresh Brief</button><button class="btn-primary" id="btn-print-brief" style="width:auto;padding:8px 14px;">Print / Save PDF</button></div></div>' +
+      '<div id="doctor-brief-body" style="margin-top:12px;">' + (STATE.doctorBrief ? renderDoctorBriefHtml_(STATE.doctorBrief) : '<p class="card-sub">Tap <strong>Load / Refresh Brief</strong> to assemble your live whole-body clinical summary.</p>') + '</div></div>';
 
     const el = document.getElementById('view-reports');
     el.innerHTML = html;
-    document.getElementById('wk-select').addEventListener('change', function (e) {
-      STATE.selectedWeekIdx = Number(e.target.value);
-      renderReports();
-    });
+    document.getElementById('wk-select').addEventListener('change', function (e) { STATE.selectedWeekIdx = Number(e.target.value); renderReports(); });
     document.getElementById('btn-print-brief').addEventListener('click', function () { window.print(); });
     document.getElementById('btn-load-brief').addEventListener('click', function () {
       document.getElementById('doctor-brief-body').innerHTML = '<p class="card-sub">Loading clinical records…</p>';
@@ -568,22 +801,16 @@
   }
 
   function renderDoctorBriefHtml_(b) {
-    return (
-      '<div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Generated: ' + esc(b.generatedAt) + ' · ' + esc(b.calcVersion) + '</div>' +
+    return '<div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Generated: ' + esc(b.generatedAt) + ' · ' + esc(b.calcVersion) + '</div>' +
       '<h3 class="card-title" style="margin-top:10px;">Active Medications (' + b.activeMedications.length + ')</h3>' +
       '<table class="clean-tbl"><thead><tr><th>Medication</th><th>Strength / Dosage</th><th>Frequency</th></tr></thead><tbody>' +
       b.activeMedications.map(function (m) { return '<tr><td><strong>' + esc(m.brand || m.generic) + '</strong></td><td>' + esc(m.strength + ' ' + m.dosage) + '</td><td>' + esc(m.frequency) + '</td></tr>'; }).join('') +
-      '</tbody></table>' +
-      '<h3 class="card-title" style="margin-top:12px;">Latest Key Laboratory Markers</h3>' +
+      '</tbody></table><h3 class="card-title" style="margin-top:12px;">Latest Key Laboratory Markers</h3>' +
       '<table class="clean-tbl"><thead><tr><th>Test</th><th>Value</th><th>Date</th><th>Ref Range</th><th>Flag</th></tr></thead><tbody>' +
-      b.latestLabs.map(function (l) { return '<tr><td>' + esc(l.testName) + '</td><td><strong>' + esc(l.value + ' ' + l.unit) + '</strong></td><td>' + esc(l.testDate) + '</td><td>' + esc(l.refRange) + '</td><td>' + esc(l.abnormalFlag) + '</td></tr>'; }).join('') +
-      '</tbody></table>' +
-      '<h3 class="card-title" style="margin-top:12px;">Recent Procedures &amp; Imaging</h3>' +
-      '<ul style="margin:4px 0;padding-left:18px;font-size:12px;">' +
-      b.procedures.map(function (p) { return '<li><strong>' + esc(p.date) + ':</strong> ' + esc(p.name) + ' (' + esc(p.status) + ')</li>'; }).join('') +
-      b.imagingHighlights.slice(0, 3).map(function (im) { return '<li><strong>' + esc(im.date + ' ' + im.modality) + ':</strong> ' + esc(im.impression) + '</li>'; }).join('') +
-      '</ul>'
-    );
+      b.latestLabs.map(function (l) { return '<tr><td>' + esc(l.testName) + '</td><td><strong>' + esc(l.value + ' ' + l.unit) + '</strong></td><td>' + esc(fmtDateIN_(l.testDate)) + '</td><td>' + esc(l.refRange) + '</td><td>' + esc(l.abnormalFlag) + '</td></tr>'; }).join('') +
+      '</tbody></table><h3 class="card-title" style="margin-top:12px;">Recent Procedures &amp; Imaging</h3><ul style="margin:4px 0;padding-left:18px;font-size:12px;">' +
+      b.procedures.map(function (p) { return '<li><strong>' + esc(fmtDateIN_(p.date)) + ':</strong> ' + esc(p.name) + ' (' + esc(p.status) + ')</li>'; }).join('') +
+      b.imagingHighlights.slice(0, 3).map(function (im) { return '<li><strong>' + esc(fmtDateIN_(im.date) + ' ' + im.modality) + ':</strong> ' + esc(im.impression) + '</li>'; }).join('') + '</ul>';
   }
 
   // ==================== TAB 4: WISDOM ====================
@@ -594,207 +821,44 @@
       'Given my Sept 2026 HbA1c 6.2%, insulin 34, and Grade 1 fatty liver, what nutrition tweaks matter most this month?',
       'When is the ideal timing for my post-IV-iron ferritin and post-Thyronorm TSH follow-up labs?'
     ];
-
-    let html = '<div class="card card-plum">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;">' +
-        '<div><h2 class="card-title">Personal Health Wisdom</h2><p class="card-sub">Powered by your Google AI Pro Gemini Tasks &amp; Gem ($0 extra)</p></div>' +
-        provBadge('AI') + '</div>' +
-      '<div style="margin-top:10px;display:flex;flex-direction:column;gap:7px;">' +
-      starters.map(function (q) {
+    let html = '<div class="card card-plum"><div style="display:flex;justify-content:space-between;align-items:center;"><div><h2 class="card-title">Personal Health Wisdom</h2><p class="card-sub">Powered by your Google AI Pro Gemini Tasks &amp; Gem ($0 extra)</p></div>' + provBadge('AI') + '</div>' +
+      '<div style="margin-top:10px;display:flex;flex-direction:column;gap:7px;">' + starters.map(function (q) {
         return '<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:9px 11px;font-size:12px;">✦ ' + esc(q) + '</div>';
-      }).join('') + '</div></div>';
-
-    html += '<div class="card"><h2 class="card-title">Saved AI Briefs &amp; Symptom Peer-Expectedness</h2>';
-    if (aiRows.length) {
-      html += aiRows.map(function (r) {
-        return '<div style="padding:10px 0;border-bottom:1px solid var(--border);">' +
-          '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);"><span>' + esc(r.report_type) + ' · ' + esc(r.period_key) + '</span><span>' + esc(r.generated_at) + '</span></div>' +
-          '<div style="font-weight:700;margin:3px 0;">' + esc(r.headline) + '</div>' +
-          '<div style="font-size:12.5px;color:var(--muted);">' + esc(r.body_markdown) + '</div>' +
-          '<div style="font-size:11px;color:var(--plum);margin-top:4px;">' + esc(r.citations || '') + '</div></div>';
-      }).join('');
-    } else {
-      html += '<p class="card-sub">No Gemini Scheduled Action outputs yet — Phase 3 will connect your Daily, Friday Weekly, and Monthly tasks directly to AI_Outputs.</p>';
-    }
-    html += '</div>';
-
-    // V2 Planned Feature Slot
-    html += '<div class="card" style="border-style:dashed;opacity:0.78;">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;"><h2 class="card-title">GLP-1 News &amp; Research Pulse</h2><span class="prov">Planned · V2</span></div>' +
-      '<p class="card-sub" style="margin-top:4px;">Weekly curated feed of new GLP-1 trials, regulatory updates, and metabolic/muscle-preservation research trends.</p></div>';
-
+      }).join('') + '</div></div>' +
+      '<div class="card"><h2 class="card-title">Saved AI Briefs &amp; Symptom Peer-Expectedness</h2>' +
+      (aiRows.length ? aiRows.map(function (r) {
+        return '<div style="padding:10px 0;border-bottom:1px solid var(--border);"><div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);"><span>' + esc(r.report_type) + ' · ' + esc(fmtDateIN_(r.period_key)) + '</span><span>' + esc(r.generated_at) + '</span></div>' +
+          '<div style="font-weight:700;margin:3px 0;">' + esc(r.headline) + '</div><div style="font-size:12.5px;color:var(--muted);">' + esc(r.body_markdown) + '</div><div style="font-size:11px;color:var(--plum);margin-top:4px;">' + esc(r.citations || '') + '</div></div>';
+      }).join('') : '<p class="card-sub">Phase 3 Gemini Scheduled Actions will populate briefs here.</p>') + '</div>' +
+      '<div class="card" style="border-style:dashed;opacity:0.78;"><div style="display:flex;justify-content:space-between;align-items:center;"><h2 class="card-title">GLP-1 News &amp; Research Pulse</h2><span class="prov">Planned · V2</span></div><p class="card-sub" style="margin-top:4px;">Weekly curated feed of new GLP-1 trials, regulatory updates, and metabolic research trends.</p></div>';
     document.getElementById('view-wisdom').innerHTML = html;
   }
 
-  // ==================== DISCREET ACCESS PIN CONTROLLER ====================
-  const pinModal = document.getElementById('pin-modal');
-  const pinField = document.getElementById('pin-field');
-  const pinStatus = document.getElementById('pin-status');
-  const btnPinModal = document.getElementById('btn-pin-modal');
-  const btnPinSubmit = document.getElementById('btn-pin-submit');
-  const btnPinLock = document.getElementById('btn-pin-lock');
-
-  function closePinModal_() {
-    pinModal.classList.remove('open');
-    pinField.value = '';
-    pinStatus.textContent = '';
-    btnPinSubmit.disabled = false;
-  }
-
-  function safeRenderCurrentTab_() {
-    try {
-      renderCurrentTab();
-    } catch (e) {
-      if (window.console && console.error) console.error('Render error:', e);
-    }
-  }
-
-  btnPinModal.addEventListener('click', function () {
-    pinField.value = '';
-    pinStatus.textContent = '';
-    btnPinSubmit.disabled = false;
-    btnPinLock.classList.toggle('hidden', STATE.privacyMode !== 'private');
-    pinModal.classList.add('open');
-    pinField.focus();
-  });
-  document.getElementById('btn-pin-close').addEventListener('click', closePinModal_);
-  pinField.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') { e.preventDefault(); btnPinSubmit.click(); }
-  });
-
-  btnPinSubmit.addEventListener('click', function () {
-    const val = pinField.value.trim();
-    if (!val) { pinStatus.textContent = 'Please enter your PIN.'; return; }
-    btnPinSubmit.disabled = true;
-    pinStatus.textContent = 'Checking…';
-
-    let settled = false;
-    const verifyTimer = setTimeout(function () {
-      if (settled) return;
-      settled = true;
-      btnPinSubmit.disabled = false;
-      pinStatus.textContent = 'Request timed out. Please try again.';
-    }, 15000);
-
-    google.script.run
-      .withSuccessHandler(function (res) {
-        if (settled) return;
-        settled = true;
-        clearTimeout(verifyTimer);
-
-        if (!res || res.error) {
-          btnPinSubmit.disabled = false;
-          pinStatus.textContent = (res && res.error) ? res.error : 'Unable to verify PIN.';
-          return;
-        }
-        if (res.mode === 'private' && res.token) {
-          STATE.privacyMode = 'private';
-          STATE.privateToken = res.token;
-          pinStatus.textContent = 'Updating view…';
-
-          let loadSettled = false;
-          const loadTimer = setTimeout(function () {
-            if (loadSettled) return;
-            loadSettled = true;
-            btnPinSubmit.disabled = false;
-            pinStatus.textContent = 'Loading timed out. Please try again.';
-          }, 15000);
-
-          google.script.run
-            .withSuccessHandler(function (smData) {
-              if (loadSettled) return;
-              loadSettled = true;
-              clearTimeout(loadTimer);
-              STATE.smokingData = smData;
-              closePinModal_();
-              safeRenderCurrentTab_();
-            })
-            .withFailureHandler(function (e) {
-              if (loadSettled) return;
-              loadSettled = true;
-              clearTimeout(loadTimer);
-              btnPinSubmit.disabled = false;
-              pinStatus.textContent = String((e && e.message) || e || 'Unable to load view.');
-            })
-            .getPrivateSmokingAnalytics(res.token);
-        } else {
-          enterCleanMode_();
-        }
-      })
-      .withFailureHandler(function (e) {
-        if (settled) return;
-        settled = true;
-        clearTimeout(verifyTimer);
-        btnPinSubmit.disabled = false;
-        pinStatus.textContent = String((e && e.message) || e || 'Verification failed.');
-      })
-      .verifyPinMode(val);
-  });
-
-  btnPinLock.addEventListener('click', function () {
-    enterCleanMode_();
-  });
-
-  function enterCleanMode_() {
-    const prevTok = STATE.privateToken;
-    STATE.privacyMode = 'clean';
-    STATE.privateToken = '';
-    STATE.smokingData = null;
-    if (STATE.category === 'cravings') STATE.category = 'all';
-    closePinModal_();
-    if (prevTok) {
-      google.script.run
-        .withFailureHandler(function () {})
-        .revokePrivateSession(prevTok);
-    }
-    safeRenderCurrentTab_();
-  }
-
   // ==================== HELPERS ====================
-  function safeChart_(fnName, args, fallbackHtml) {
-    try {
-      const lib = window.Charts;
-      if (lib && typeof lib[fnName] === 'function') {
-        return lib[fnName].apply(lib, args || []);
-      }
-    } catch (e) {
-      if (window.console && console.error) console.error('Chart render failed (' + fnName + '):', e);
-    }
-    return fallbackHtml || '';
-  }
   function tileHtml_(k, v, d, accent) {
-    return '<div class="stat-tile"><div class="stat-k"><span>' + esc(k) + '</span><span style="color:' + accent + ';">●</span></div>' +
-      '<div class="stat-v">' + v + '</div><div class="stat-d">' + esc(d) + '</div></div>';
+    return '<div class="stat-tile"><div class="stat-k"><span>' + esc(k) + '</span><span style="color:' + accent + ';">●</span></div><div class="stat-v">' + v + '</div><div class="stat-d">' + esc(d) + '</div></div>';
+  }
+  function tileFormulaHtml_(k, v, d, accent, fId, fText) {
+    return '<div class="stat-tile"><div class="stat-k"><span>' + esc(k) + '</span><span><button class="info-btn" data-fbox="' + fId + '" title="Formula">ⓘ</button> <span style="color:' + accent + ';">●</span></span></div>' +
+      '<div class="stat-v">' + v + '</div><div class="stat-d">' + esc(d) + '</div><div class="formula-box" id="' + fId + '">' + esc(fText) + '</div></div>';
   }
   function getLatestWeight_(daily) {
     for (let i = daily.length - 1; i >= 0; i--) {
-      if (daily[i].weight_kg !== '' && daily[i].weight_kg != null) {
-        return { w: Number(daily[i].weight_kg), date: daily[i].date };
-      }
+      if (daily[i].weight_kg !== '' && daily[i].weight_kg != null) return { w: Number(daily[i].weight_kg), date: daily[i].date };
     }
     return null;
   }
-  function buildDailyNudges_(cur7, latest, qaLog) {
+  function buildDailyNudges_(cur7) {
     const out = [];
-    if (cur7.avgProtein !== '' && cur7.avgProtein < 95) {
-      out.push({ tag: 'Muscle Shield', title: 'Add 1 Protein Anchor (+25g)', action: 'Aim for a whey shake, Greek yogurt, or paneer/egg anchor today.', dataWhy: '7-day avg protein is ' + cur7.avgProtein + ' g/d (target ~100 g/d).', evidence: 'Adequate protein (~1.2–1.5 g/kg ideal weight) supports lean-mass preservation on GLP-1 therapy.' });
-    }
-    if (cur7.avgFiber !== '' && cur7.avgFiber < 22) {
-      out.push({ tag: 'GI & Glycemic', title: 'Boost Fiber + Fluids', action: 'Add psyllium/chia/dal (+8–10g fiber) alongside 2+ L water.', dataWhy: '7-day avg fiber is ' + cur7.avgFiber + ' g/d.', evidence: 'Higher soluble fiber supports bowel regularity and blunts post-meal glucose spikes.' });
-    }
-    if ((cur7.strengthSessions || 0) < 2) {
-      out.push({ tag: 'Post-GLP-1 Habit', title: 'Schedule 25-Min Strength', action: 'Shift 1–2 walks this week into light resistance training.', dataWhy: 'Only ' + (cur7.strengthSessions || 0) + ' strength session(s) in the last 7 days.', evidence: 'Resistance training is the primary driver of lean-mass retention during caloric deficit.' });
-    }
-    if ((cur7.nutritionLoggedDays || 0) < 5) {
-      out.push({ tag: 'Logging Nudge', title: 'Quick Nutrition Catch-Up', action: 'Log today\'s main meals so protein & bioavailability trends stay sharp.', dataWhy: 'Nutrition logged on ' + (cur7.nutritionLoggedDays || 0) + '/7 recent days (unlogged is never counted as 0).', evidence: 'Consistent logging improves self-monitoring awareness.' });
-    }
-    if (!out.length) {
-      out.push({ tag: 'Momentum', title: 'Strong 7-Day Rhythm!', action: 'Keep protecting your 7h+ sleep and daily movement streak.', dataWhy: 'Steps, protein, and sleep are all tracking solidly this week.', evidence: 'Consistent daily habits build durable post-GLP-1 maintenance.' });
-    }
+    if (cur7.avgProtein !== '' && cur7.avgProtein < 95) out.push({ tag: 'Muscle Shield', title: 'Add 1 Protein Anchor (+25g)', action: 'Aim for a whey shake, Greek yogurt, or paneer/egg anchor today.', dataWhy: '7-day avg protein is ' + cur7.avgProtein + ' g/d (target ~100 g/d).', evidence: 'Adequate protein supports lean-mass preservation on GLP-1 therapy.' });
+    if (cur7.avgFiber !== '' && cur7.avgFiber < 22) out.push({ tag: 'GI & Glycemic', title: 'Boost Fiber + Fluids', action: 'Add psyllium/chia/dal (+8–10g fiber) alongside 2+ L water.', dataWhy: '7-day avg fiber is ' + cur7.avgFiber + ' g/d.', evidence: 'Soluble fiber supports regularity and blunts post-meal glucose spikes.' });
+    if ((cur7.strengthSessions || 0) < 2) out.push({ tag: 'Post-GLP-1 Habit', title: 'Schedule 25-Min Strength', action: 'Shift 1–2 walks this week into light resistance training.', dataWhy: 'Only ' + (cur7.strengthSessions || 0) + ' strength session(s) in the last 7 days.', evidence: 'Resistance training is the primary driver of lean-mass retention.' });
+    if ((cur7.nutritionLoggedDays || 0) < 5) out.push({ tag: 'Logging Nudge', title: 'Quick Nutrition Catch-Up', action: 'Log today\'s main meals so protein & bioavailability trends stay sharp.', dataWhy: 'Nutrition logged on ' + (cur7.nutritionLoggedDays || 0) + '/7 recent days.', evidence: 'Consistent logging improves self-monitoring awareness.' });
+    if (!out.length) out.push({ tag: 'Momentum', title: 'Strong 7-Day Rhythm!', action: 'Keep protecting your 7h+ sleep and daily movement streak.', dataWhy: 'Steps, protein, and sleep are tracking solidly this week.', evidence: 'Consistent daily habits build durable post-GLP-1 maintenance.' });
     return out;
   }
 
-  // Kick off live load
-  loadLivePayload();
+  // Boot strictly into Lock Screen — zero data fetched until PIN verified!
+  pinField.focus();
 })();
 </script>
