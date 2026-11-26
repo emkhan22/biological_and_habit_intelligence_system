@@ -2,8 +2,9 @@
 /**
  * Charts.html — Zero-CDN Native SVG Charting Library for Glapp+ Web App.
  * CSP-safe inside Google Sites iframes; supports Multi-Event Overlays.
+ * Attached explicitly to window.Charts for Apps Script HtmlService scope safety.
  */
-const Charts = (function () {
+window.Charts = (function () {
   function esc(s) {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

@@ -71,6 +71,23 @@ def main():
             assert "Smoking_Log" not in txt and "getPrivateSmokingAnalytics" not in txt, "WebApp.gs must stay 100% smoking-free!"
     print("[PASS] Privacy scan OK: Engine.gs & WebApp.gs do not read Smoking_Log")
 
+    # 6. Charts global export & Index.html include order + discreet PIN modal checks
+    with open(os.path.join(ROOT, 'apps-script', 'Charts.html')) as f:
+        charts_txt = f.read()
+    assert 'window.Charts' in charts_txt, "Charts.html must expose window.Charts"
+    print("[PASS] Charts.html exposes window.Charts")
+
+    with open(os.path.join(ROOT, 'apps-script', 'Index.html')) as f:
+        idx_txt = f.read()
+    pos_charts = idx_txt.find("include('Charts')")
+    pos_app = idx_txt.find("include('App')")
+    assert pos_charts != -1 and pos_app != -1 and pos_charts < pos_app, "Index.html must include Charts before App"
+    idx_lower = idx_txt.lower()
+    for forbidden in ['smoking', 'clean mode', 'private full mode', 'pin 1', 'pin 2', '5-pillar']:
+        assert forbidden not in idx_lower, f"Index.html must not contain '{forbidden}' in default markup"
+    assert 'maxlength="64"' in idx_txt, "Index.html PIN input must support maxlength=64"
+    print("[PASS] Index.html OK: Charts before App, maxlength=64, discreet default markup")
+
     print("\nALL PHASE 1 + PHASE 2 LOCAL VALIDATIONS PASSED!")
 
 if __name__ == '__main__':
