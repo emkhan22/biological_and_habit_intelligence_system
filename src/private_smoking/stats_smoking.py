@@ -221,11 +221,17 @@ def build_private_smoking_stats(
         and not weight_intervals_df.empty
         and {"start_date", "end_date"}.issubset(weight_intervals_df.columns)
     ):
-        w_sub = (
-            weight_intervals_df.loc[weight_intervals_df["in_all_weighins"]].copy()
-            if "in_all_weighins" in weight_intervals_df.columns
-            else weight_intervals_df.copy()
-        )
+        if "in_all_weighins" in weight_intervals_df.columns:
+            in_all_mask = (
+                weight_intervals_df["in_all_weighins"]
+                .astype(str)
+                .str.strip()
+                .str.lower()
+                .isin(["true", "1", "yes"])
+            )
+            w_sub = weight_intervals_df.loc[in_all_mask].copy()
+        else:
+            w_sub = weight_intervals_df.copy()
         logged_dates_set = (
             set(
                 miss_df.loc[
