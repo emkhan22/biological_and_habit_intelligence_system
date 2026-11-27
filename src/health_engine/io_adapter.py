@@ -191,8 +191,8 @@ class GoogleSheetsAdapter(HealthIOAdapter):
         source_sheet_ids: dict[str, str] | None = None,
         target_store_id: str | None = None,
         local_mirror_dir: Path | None = None,
-        max_retries: int = 5,
-        base_delay_sec: float = 1.5,
+        max_retries: int = 7,
+        base_delay_sec: float = 2.5,
     ) -> None:
         if os.environ.get("GCP_SMOKING_SA_JSON") and not sa_json_str and not os.environ.get("GCP_HEALTH_SA_JSON"):
             raise PrivacyBoundaryViolationError(
@@ -218,6 +218,7 @@ class GoogleSheetsAdapter(HealthIOAdapter):
         self.max_retries = max_retries
         self.base_delay_sec = base_delay_sec
         self._spreadsheet_cache: dict[str, gspread.Spreadsheet] = {}
+        self._worksheet_cache: dict[str, dict[str, gspread.Worksheet]] = {}
 
     def _with_backoff(self, fn: Any, *args: Any, **kwargs: Any) -> Any:
         for attempt in range(self.max_retries):
@@ -226,7 +227,7 @@ class GoogleSheetsAdapter(HealthIOAdapter):
             except APIError as exc:
                 status = getattr(getattr(exc, "response", None), "status_code", None)
                 if status in {429, 500, 502, 503, 504} and attempt < self.max_retries - 1:
-                    sleep_s = self.base_delay_sec * (2**attempt)
+                    sleep_s = min(65.0, self.base_delay_sec * (2**attempt))
                     time.sleep(sleep_s)
                     continue
                 raise
@@ -240,6 +241,13 @@ class GoogleSheetsAdapter(HealthIOAdapter):
             )
         return self._spreadsheet_cache[sheet_id]
 
+    def _get_worksheet_map(self, sheet_id: str) -> dict[str, gspread.Worksheet]:
+        if sheet_id not in self._worksheet_cache:
+            sh = self._open_by_id(sheet_id)
+            ws_list = self._with_backoff(sh.worksheets)
+            self._worksheet_cache[sheet_id] = {ws.title: ws for ws in ws_list}
+        return self._worksheet_cache[sheet_id]
+
     def read_source_tab(self, workbook: str, tab: str, required: bool = False) -> pd.DataFrame:
         enforce_non_smoking_boundary(workbook, tab)
         allowed = ALLOWED_SOURCE_TABS.get(workbook)
@@ -252,12 +260,11 @@ class GoogleSheetsAdapter(HealthIOAdapter):
             if required:
                 raise ValueError(f"Missing Sheet ID for source workbook '{workbook}'.")
             return pd.DataFrame()
-        sh = self._open_by_id(sheet_id)
-        try:
-            ws = self._with_backoff(sh.worksheet, tab)
-        except WorksheetNotFound:
+        ws_map = self._get_worksheet_map(sheet_id)
+        ws = ws_map.get(tab)
+        if ws is None:
             if required:
-                raise
+                raise WorksheetNotFound(tab)
             return pd.DataFrame()
         values = self._with_backoff(
             ws.get_all_values,
@@ -282,21 +289,23 @@ class GoogleSheetsAdapter(HealthIOAdapter):
         if not self.target_store_id:
             raise ValueError("Missing SHEET_ID_STORE_V2 for writing derived tables.")
         sh = self._open_by_id(self.target_store_id)
+        ws_map = self._get_worksheet_map(self.target_store_id)
         matrix = sanitize_df_for_sheets(df)
         rows_needed = max(len(matrix) + 10, 50)
         cols_needed = max(len(matrix[0]) + 2, 10)
-        try:
-            ws = self._with_backoff(sh.worksheet, tab_name)
+        ws = ws_map.get(tab_name)
+        if ws is not None:
             self._with_backoff(ws.clear)
             if ws.row_count < len(matrix) or ws.col_count < len(matrix[0]):
                 self._with_backoff(ws.resize, rows=rows_needed, cols=cols_needed)
-        except WorksheetNotFound:
+        else:
             ws = self._with_backoff(
                 sh.add_worksheet,
                 title=tab_name,
                 rows=rows_needed,
                 cols=cols_needed,
             )
+            ws_map[tab_name] = ws
         self._with_backoff(
             ws.update,
             values=matrix,
