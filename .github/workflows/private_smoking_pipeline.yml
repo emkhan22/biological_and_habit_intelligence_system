@@ -32,13 +32,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .
 
-      - name: Sync isolated Smoking_Log to Smoking_Private_Store
+      - name: Sync isolated Smoking_Log + V2.0 stats_smoking to Smoking_Private_Store
         # Strictly isolated credentials; zero artifact uploads; zero raw row stdout logging
         env:
           TZ: "Asia/Kolkata"
           GCP_SMOKING_SA_JSON: ${{ secrets.GCP_SMOKING_SA_JSON }}
           SHEET_ID_JOURNAL: ${{ secrets.SHEET_ID_JOURNAL }}
           SHEET_ID_SMOKING_STORE: ${{ secrets.SHEET_ID_SMOKING_STORE }}
+          SHEET_ID_STORE_V2: ${{ secrets.SHEET_ID_STORE_V2 }}
         run: |
           if [ -z "$GCP_SMOKING_SA_JSON" ] || [ -z "$SHEET_ID_SMOKING_STORE" ] || [ -z "$SHEET_ID_JOURNAL" ]; then
             echo "Skipping private_smoking sync: one or more required secrets (GCP_SMOKING_SA_JSON, SHEET_ID_JOURNAL, SHEET_ID_SMOKING_STORE) are not configured yet."

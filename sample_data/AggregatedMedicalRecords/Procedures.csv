@@ -1,0 +1,3 @@
+Procedure_ID,Procedure_Name,Category,Status,Date_Performed_Or_Planned,Ordering_Doctor,Protocol_And_Details
+PROC-001,Arachitol 6L Intramuscular Injection,Therapeutic Injection,Completed,2026-10-02,Dr. Jasjeet Singh,"600,000 IU Cholecalciferol IM single loading dose"
+PROC-002,Orofer FCM 1K Intravenous Iron Infusion,Therapeutic Infusion,Completed,2026-10-10,Dr. Daranish Aradhya,"1,000 mg Ferric Carboxymaltose IV"

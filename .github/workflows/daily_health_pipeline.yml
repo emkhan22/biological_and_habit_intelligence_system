@@ -1,4 +1,4 @@
-name: Daily Health Intelligence Pipeline (V1.5)
+name: Daily Health Intelligence Pipeline (V1.5 + V2.0)
 
 on:
   schedule:
@@ -10,13 +10,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: daily-health-v15
+  group: daily-health-v20
   cancel-in-progress: false
 
 jobs:
   run-health-engine:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -46,3 +46,15 @@ jobs:
           SHEET_ID_STORE_V2: ${{ secrets.SHEET_ID_STORE_V2 }}
         run: |
           python -m health_engine.run_v15 --source sheets --output-dir ./build_out
+
+      - name: Execute V2.0 Statistical Inference Engine against Google Sheets
+        env:
+          TZ: "Asia/Kolkata"
+          GCP_HEALTH_SA_JSON: ${{ secrets.GCP_HEALTH_SA_JSON }}
+          SHEET_ID_HC: ${{ secrets.SHEET_ID_HC }}
+          SHEET_ID_GLAPP: ${{ secrets.SHEET_ID_GLAPP }}
+          SHEET_ID_MEDICAL: ${{ secrets.SHEET_ID_MEDICAL }}
+          SHEET_ID_JOURNAL: ${{ secrets.SHEET_ID_JOURNAL }}
+          SHEET_ID_STORE_V2: ${{ secrets.SHEET_ID_STORE_V2 }}
+        run: |
+          python -m health_engine.run_v20 --source sheets --output-dir ./build_out --skip-v15-persist

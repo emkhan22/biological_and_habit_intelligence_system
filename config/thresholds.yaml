@@ -1,7 +1,7 @@
 # Thresholds, Anthropometrics, Intervention Anchors & Maturity Gates
 # Governed by AGENTS.md — all timestamps evaluated in Asia/Kolkata (IST)
 
-engine_version: "v1.5.0"
+engine_version: "v2.0.0"
 timezone: "Asia/Kolkata"
 target_store_name: "Health_Intelligence_Store_v2"
 
@@ -17,11 +17,30 @@ phase_anchors:
     start_date: "2026-05-01"
     end_date: "2026-09-30"
   oct7_baseline_weight_kg: 108.3
+  oct7_baseline_date: "2026-10-07"
   active_glp1_phase:
     start_date: "2026-10-21"
   menstrual_ownership:
     flo_end_date: "2026-11-05"
     fitbit_hc_start_date: "2026-11-06"
+
+intervention_anchors:
+  - anchor_id: "Vit_D_600K_IM"
+    anchor_date: "2026-10-02"
+    label: "Vitamin D3 600K IU IM Loading Dose"
+    end_date: null
+  - anchor_id: "IV_Iron_FCM_1g"
+    anchor_date: "2026-10-10"
+    label: "IV Iron Ferric Carboxymaltose 1g Infusion"
+    end_date: null
+  - anchor_id: "Tirzepatide_2.5mg"
+    anchor_date: "2026-10-21"
+    label: "Tirzepatide 2.5 mg Initiation"
+    end_date: "2026-11-18"
+  - anchor_id: "Tirzepatide_5.0mg"
+    anchor_date: "2026-11-19"
+    label: "Tirzepatide 5.0 mg Dose Escalation"
+    end_date: null
 
 silver_gates:
   sleep:
@@ -75,3 +94,42 @@ rolling_maturity_gates:
     14: 5
     28: 10
   robust_mad_scale: 1.4826
+
+v20_maturity_gates:
+  daily_series:
+    level1_exploratory_min_n: 15
+    level2_modeling_min_n: 30
+    level3_ml_v25_min_n: 100
+  weight_intervals:
+    level1_early_signal_min_intervals: 12
+    level2_modeling_min_intervals: 24
+    min_nutrition_coverage_pct: 0.60
+  treatment_scorecards:
+    min_valid_n_baseline_gate: 14
+    overlap_window_days: 28
+    default_pre_window_days: 90
+  event_study:
+    overlap_window_days: 28
+    its_min_pre_valid_n: 28
+    its_min_post_valid_n: 28
+    descriptive_windows_days: [7, 14, 28]
+  tirzepatide_wave:
+    adj_regression_min_weeks: 12
+  cycle_stats:
+    kruskal_min_days_per_phase: 10
+  bootstrap:
+    n_resamples: 1000
+    random_seed: 42
+    stable_sign_threshold: 0.90
+    moderate_sign_threshold: 0.75
+
+weight_alignment:
+  cross_source_discrepancy_kg: 0.2
+  min_loss_for_fat_share_kg: -0.3
+  ema_tau_days: 10.0
+  non_fasted_ema_discount: 0.35
+  fallback_morning_cutoff_hr: 14.0
+  fallback_evening_cutoff_hr: 18.0
+  masld_milestones_pct: [7.0, 10.0]
+  bmi_thresholds: [40.0, 35.0, 30.0, 25.0]
+

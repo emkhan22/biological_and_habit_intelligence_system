@@ -62,6 +62,7 @@ ALLOWED_SOURCE_TABS: dict[str, frozenset[str]] = {
             "Diagnoses",
             "Medications",
             "Prescriptions",
+            "Procedures",
             "Extraction_Review",
         }
     ),

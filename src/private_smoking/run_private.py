@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 
 from private_smoking.silver_smoking import process_silver_smoking
+from private_smoking.stats_smoking import build_private_smoking_stats
 
 
 def _serialize_matrix(df: pd.DataFrame) -> list[list[Any]]:
@@ -34,8 +35,8 @@ def _serialize_matrix(df: pd.DataFrame) -> list[list[Any]]:
         for v in rec:
             if v is None or (isinstance(v, (float, np.floating)) and np.isnan(v)) or pd.isna(v):
                 out.append("")
-            elif isinstance(v, (np.integer, int)) and not isinstance(v, bool):
-                out.append(int(v))
+            elif isinstance(v, (np.integer, int)) and not isinstance(val_int := v, bool):
+                out.append(int(val_int))
             elif isinstance(v, (np.floating, float)):
                 out.append(round(float(v), 4))
             elif isinstance(v, (np.bool_, bool)):
@@ -58,7 +59,34 @@ def _with_backoff(fn: Any, *args: Any, **kwargs: Any) -> Any:
             raise
 
 
-def run_private_pipeline_csv(data_dir: Path, output_dir: Path) -> dict[str, pd.DataFrame]:
+def _load_optional_local_context(
+    health_out_dir: Path | None,
+) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
+    if health_out_dir is None or not health_out_dir.exists():
+        return None, None
+    daily_ctx: pd.DataFrame | None = None
+    wint_ctx: pd.DataFrame | None = None
+    d_pq = health_out_dir / "Gold_Daily_Unified.parquet"
+    d_csv = health_out_dir / "Gold_Daily_Unified.csv"
+    if d_pq.exists():
+        daily_ctx = pd.read_parquet(d_pq)
+    elif d_csv.exists():
+        daily_ctx = pd.read_csv(d_csv)
+
+    w_pq = health_out_dir / "Gold_Weight_Intervals.parquet"
+    w_csv = health_out_dir / "Gold_Weight_Intervals.csv"
+    if w_pq.exists():
+        wint_ctx = pd.read_parquet(w_pq)
+    elif w_csv.exists():
+        wint_ctx = pd.read_csv(w_csv)
+    return daily_ctx, wint_ctx
+
+
+def run_private_pipeline_csv(
+    data_dir: Path,
+    output_dir: Path,
+    health_out_dir: Path | None = None,
+) -> dict[str, pd.DataFrame]:
     candidates = [
         data_dir / "Micro Journal" / "Smoking_Log.csv",
         data_dir / "Micro_Journal" / "Smoking_Log.csv",
@@ -72,27 +100,57 @@ def run_private_pipeline_csv(data_dir: Path, output_dir: Path) -> dict[str, pd.D
         else pd.DataFrame()
     )
     tables = process_silver_smoking(raw_df)
+    daily_ctx, wint_ctx = _load_optional_local_context(health_out_dir)
+    v20_tables = build_private_smoking_stats(
+        tables, daily_context_df=daily_ctx, weight_intervals_df=wint_ctx
+    )
+    all_tables = {**tables, **v20_tables}
+
     output_dir.mkdir(parents=True, exist_ok=True)
-    for name, tbl in tables.items():
+    for name, tbl in all_tables.items():
         tbl.to_csv(output_dir / f"{name}.csv", index=False)
         pq = tbl.copy()
         for c in pq.columns:
             if pq[c].dtype == object:
                 pq[c] = pq[c].astype("string")
         pq.to_parquet(output_dir / f"{name}.parquet", index=False)
-    return tables
+    return all_tables
 
 
-def run_private_pipeline_sheets() -> None:
+def _read_optional_sheet_df(
+    client: gspread.Client, sheet_id: str, tab_name: str
+) -> pd.DataFrame | None:
+    if not sheet_id:
+        return None
+    try:
+        sh = _with_backoff(client.open_by_key, sheet_id)
+        ws = _with_backoff(sh.worksheet, tab_name)
+        vals = _with_backoff(ws.get_all_values, value_render_option=ValueRenderOption.formatted)
+        if not vals:
+            return None
+        headers = [str(h).strip() for h in vals[0]]
+        body = [
+            r + [""] * max(0, len(headers) - len(r))
+            for r in vals[1:]
+            if any(str(c).strip() != "" for c in r)
+        ]
+        return pd.DataFrame([r[: len(headers)] for r in body], columns=headers, dtype=str)
+    except Exception:
+        # Graceful fallback when GCP_SMOKING_SA_JSON has zero read access to non-smoking store
+        return None
+
+
+def run_private_pipeline_sheets(health_out_dir: Path | None = None) -> None:
     sa_raw = os.environ.get("GCP_SMOKING_SA_JSON", "").strip()
     if not sa_raw:
         raise ValueError("Missing required GCP_SMOKING_SA_JSON secret for private_smoking.")
 
     journal_id = os.environ.get("SHEET_ID_JOURNAL", "").strip()
     private_store_id = os.environ.get("SHEET_ID_SMOKING_STORE", "").strip()
+    store_v2_id = os.environ.get("SHEET_ID_STORE_V2", "").strip()
     public_store_ids = {
         os.environ.get("SHEET_ID_STORE", "").strip(),
-        os.environ.get("SHEET_ID_STORE_V2", "").strip(),
+        store_v2_id,
     } - {""}
 
     if not journal_id or not private_store_id:
@@ -119,8 +177,20 @@ def run_private_pipeline_sheets() -> None:
         raw_df = pd.DataFrame()
 
     tables = process_silver_smoking(raw_df)
+    daily_ctx, wint_ctx = _load_optional_local_context(health_out_dir)
+    if daily_ctx is None and store_v2_id:
+        daily_ctx = _read_optional_sheet_df(client, store_v2_id, "Gold_Daily_Unified")
+    if wint_ctx is None and store_v2_id:
+        wint_ctx = _read_optional_sheet_df(client, store_v2_id, "Gold_Weight_Intervals")
+
+    v20_tables = build_private_smoking_stats(
+        tables, daily_context_df=daily_ctx, weight_intervals_df=wint_ctx
+    )
+    all_tables = {**tables, **v20_tables}
+
+    # Strictly write ONLY to dedicated private_store_id (Smoking_Private_Store)
     sh_dst = _with_backoff(client.open_by_key, private_store_id)
-    for tab_name, tbl in tables.items():
+    for tab_name, tbl in all_tables.items():
         mat = _serialize_matrix(tbl)
         rows_n = max(len(mat) + 10, 50)
         cols_n = max(len(mat[0]) + 2, 10)
@@ -140,16 +210,17 @@ def run_private_pipeline_sheets() -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run isolated private smoking pipeline.")
+    parser = argparse.ArgumentParser(description="Run isolated private smoking Silver + V2.0 Stats pipeline.")
     parser.add_argument("--source", choices=("csv", "sheets"), required=True)
     parser.add_argument("--data-dir", type=Path, default=Path("./sample_private"))
     parser.add_argument("--output-dir", type=Path, default=Path("./private_out"))
+    parser.add_argument("--health-out-dir", type=Path, default=None)
     args = parser.parse_args(argv)
 
     if args.source == "csv":
-        run_private_pipeline_csv(args.data_dir, args.output_dir)
+        run_private_pipeline_csv(args.data_dir, args.output_dir, health_out_dir=args.health_out_dir)
     else:
-        run_private_pipeline_sheets()
+        run_private_pipeline_sheets(health_out_dir=args.health_out_dir)
 
     # Sanitized status line ONLY — zero raw data or counts printed to stdout/CI logs
     print("[private_smoking] sync status=ok")

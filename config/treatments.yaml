@@ -1,0 +1,240 @@
+# Per-Treatment & Per-Dose Registry for Gold_Treatment_Scorecards
+# Synced dynamically against Silver_Medications, Silver_Procedures, and Silver_Glapp_Shots.
+
+overlap_window_days: 28
+min_valid_n_gate: 14
+
+tirzepatide_auto_escalation:
+  enabled: true
+  id_pattern: "Tirzepatide_{dose}mg"
+  pre_baseline_start: "2025-06-05"
+  pre_baseline_end: "2026-09-30"
+  equilibration_days: 21
+  retest_window_start_days: 84
+  retest_window_end_days: 112
+  retest_labs: ["HbA1c", "Fasting Blood Glucose (FBS)", "Triglycerides", "AST (SGOT)", "ALT (SGPT)"]
+  metrics:
+    - "loss_rate_kg_per_wk"
+    - "calories_kcal"
+    - "protein_g"
+    - "fiber_g"
+    - "hunger"
+    - "food_noise"
+    - "gi_severity"
+    - "avg_hr"
+    - "sleep_hr_avg"
+    - "resting_hr"
+    - "hrv_rmssd_ms"
+    - "asleep_min"
+    - "spikes_per_asleep_hr"
+    - "steps"
+
+treatments:
+  - treatment_id: "Vit_D_600K_IM"
+    display_name: "Vitamin D3 600K IU IM (Arachitol 6L)"
+    category: "Procedure_Loading_Dose"
+    start_date: "2026-10-02"
+    end_date: null
+    prior_dose_id: null
+    pre_baseline_start: "2025-06-05"
+    pre_baseline_end: "2026-09-30"
+    equilibration_days: 28
+    retest_window_start_days: 56
+    retest_window_end_days: 90
+    retest_labs: ["Vitamin D (25-OH)"]
+    metrics:
+      - "avg_hr"
+      - "hrv_rmssd_ms"
+      - "steps"
+      - "fatigue_days"
+    clinical_note: "Single 600,000 IU IM loading dose on 2026-10-02 followed by weekly D-Rise 60K maintenance."
+
+  - treatment_id: "IV_Iron_FCM_1g"
+    display_name: "IV Iron FCM 1g Infusion (Orofer FCM 1K)"
+    category: "Procedure_Infusion"
+    start_date: "2026-10-10"
+    end_date: null
+    prior_dose_id: null
+    pre_baseline_start: "2025-06-05"
+    pre_baseline_end: "2026-09-30"
+    equilibration_days: 28
+    retest_window_start_days: 42
+    retest_window_end_days: 56
+    retest_labs: ["Ferritin", "Hemoglobin", "MCV", "TSAT"]
+    metrics:
+      - "avg_hr"
+      - "p95_hr"
+      - "sleep_hr_avg"
+      - "cardiac_efficiency_residual"
+      - "hrv_rmssd_ms"
+      - "steps"
+      - "asleep_min"
+      - "deep_min"
+      - "rem_min"
+    clinical_note: "1g IV Ferric Carboxymaltose on 2026-10-10; 6-8 wk CBC/Ferritin retest window."
+
+  - treatment_id: "Tirzepatide_2.5mg"
+    display_name: "Tirzepatide 2.5 mg (Inj. Yurpeak Starter)"
+    category: "GLP1_GIP_Therapy"
+    glapp_dose_mg: 2.5
+    start_date: "2026-10-21"
+    end_date: "2026-11-18"
+    prior_dose_id: null
+    pre_baseline_start: "2025-06-05"
+    pre_baseline_end: "2026-09-30"
+    equilibration_days: 21
+    retest_window_start_days: 84
+    retest_window_end_days: 112
+    retest_labs: ["HbA1c", "Fasting Blood Glucose (FBS)"]
+    metrics:
+      - "loss_rate_kg_per_wk"
+      - "calories_kcal"
+      - "protein_g"
+      - "fiber_g"
+      - "hunger"
+      - "food_noise"
+      - "gi_severity"
+      - "avg_hr"
+      - "sleep_hr_avg"
+      - "resting_hr"
+      - "hrv_rmssd_ms"
+      - "asleep_min"
+      - "spikes_per_asleep_hr"
+      - "steps"
+    clinical_note: "4-week starter titration phase (2026-10-21 to 2026-11-18)."
+
+  - treatment_id: "Tirzepatide_5.0mg"
+    display_name: "Tirzepatide 5.0 mg (Inj. Yurpeak Escalation)"
+    category: "GLP1_GIP_Therapy"
+    glapp_dose_mg: 5.0
+    start_date: "2026-11-19"
+    end_date: null
+    prior_dose_id: "Tirzepatide_2.5mg"
+    prior_dose_start: "2026-10-21"
+    prior_dose_end: "2026-11-18"
+    pre_baseline_start: "2025-06-05"
+    pre_baseline_end: "2026-09-30"
+    equilibration_days: 21
+    retest_window_start_days: 70
+    retest_window_end_days: 98
+    retest_labs: ["HbA1c", "Fasting Blood Glucose (FBS)", "Lipid Profile"]
+    metrics:
+      - "loss_rate_kg_per_wk"
+      - "calories_kcal"
+      - "protein_g"
+      - "fiber_g"
+      - "hunger"
+      - "food_noise"
+      - "gi_severity"
+      - "avg_hr"
+      - "sleep_hr_avg"
+      - "resting_hr"
+      - "hrv_rmssd_ms"
+      - "asleep_min"
+      - "spikes_per_asleep_hr"
+      - "steps"
+    clinical_note: "Escalated from 2.5 mg on 2026-11-19; mild chronotropic HR uptick evaluated relative to both pre-GLP1 and 2.5 mg baselines."
+
+  - treatment_id: "Thyronorm_100mcg"
+    display_name: "Thyronorm 100 mcg (Mon-Sat, vs prior 75 mcg)"
+    category: "Endocrine_Replacement"
+    prescribed_date: "2026-09-30"
+    start_date: "2026-11-10"
+    end_date: null
+    prior_dose_id: "Thyronorm_75mcg"
+    prior_dose_start: "2026-08-12"
+    prior_dose_end: "2026-11-09"
+    pre_baseline_start: "2025-06-05"
+    pre_baseline_end: "2026-09-30"
+    reconcile_meds_log_aliases: ["thyronorm", "levothyroxine"]
+    equilibration_days: 42
+    retest_window_start_days: 42
+    retest_window_end_days: 56
+    retest_labs: ["TSH", "Free T4"]
+    metrics:
+      - "avg_hr"
+      - "sleep_hr_avg"
+      - "hrv_rmssd_ms"
+      - "steps"
+      - "asleep_min"
+    clinical_note: "Prescribed 2026-09-30; transitioned 2026-11-10 after finishing 75 mcg bottle (Meds_Log 75 mcg entries reconciled cleanly without false error); 6-8 wk TSH/FT4 equilibration."
+
+  - treatment_id: "Trazer_F_Forte"
+    display_name: "Trazer F Forte (Daily After Midday Meal)"
+    category: "Micronutrient_Supplement"
+    start_date: "2026-10-24"
+    end_date: null
+    prior_dose_id: null
+    pre_baseline_start: "2025-06-05"
+    pre_baseline_end: "2026-09-30"
+    meds_log_match: "trazer"
+    equilibration_days: 28
+    retest_window_start_days: 60
+    retest_window_end_days: 95
+    retest_labs: ["Vitamin B12", "Ferritin"]
+    metrics:
+      - "med_adherence_rate"
+      - "shot_day_skipped_meal_cascade_rate"
+    clinical_note: "Started 2026-10-24; tracks midday adherence and conditional shot-day skipped-meal cascade."
+
+  - treatment_id: "Matilda_Forte"
+    display_name: "T. Matilda Forte (Methylcobalamin + ALA + Biotin)"
+    category: "Micronutrient_Supplement"
+    start_date: "2026-10-24"
+    end_date: null
+    prior_dose_id: null
+    pre_baseline_start: "2025-06-05"
+    pre_baseline_end: "2026-09-30"
+    meds_log_match: "matilda"
+    equilibration_days: 28
+    retest_window_start_days: 60
+    retest_window_end_days: 95
+    retest_labs: ["Vitamin B12"]
+    metrics:
+      - "med_adherence_rate"
+      - "shot_day_skipped_meal_cascade_rate"
+    clinical_note: "Started 2026-10-24; tracks midday adherence, conditional shot-day skipped-meal cascade, and B12 follow-up window."
+
+  - treatment_id: "Magnesium_Glycinate"
+    display_name: "Magnesium Glycinate (Evening Supplement)"
+    category: "OTC_Supplement"
+    start_date: "2026-11-25"
+    end_date: null
+    prior_dose_id: null
+    pre_baseline_start: "2026-08-27"
+    pre_baseline_end: "2026-11-24"
+    meds_log_match: "magnesium"
+    min_valid_n_gate: 14
+    equilibration_days: 14
+    retest_window_start_days: 60
+    retest_window_end_days: 90
+    retest_labs: ["Serum Magnesium"]
+    metrics:
+      - "deep_min"
+      - "sleep_onset_latency_min_est"
+      - "hrv_rmssd_ms"
+      - "nocturnal_right_foot_cramp_cnt"
+      - "joint_shoulder_pain_cnt"
+    clinical_note: "Started 2026-11-25; gated at Level 0 (Collecting Baseline) until valid_n >= 14."
+
+  - treatment_id: "Omega3_Fish_Oil"
+    display_name: "Omega-3 Triple Strength Fish Oil"
+    category: "OTC_Supplement"
+    start_date: "2026-11-25"
+    end_date: null
+    prior_dose_id: null
+    pre_baseline_start: "2026-08-27"
+    pre_baseline_end: "2026-11-24"
+    meds_log_match: "fish oil|omega"
+    min_valid_n_gate: 14
+    equilibration_days: 28
+    retest_window_start_days: 60
+    retest_window_end_days: 90
+    retest_labs: ["Triglycerides", "HDL Cholesterol"]
+    metrics:
+      - "deep_min"
+      - "sleep_onset_latency_min_est"
+      - "hrv_rmssd_ms"
+      - "nocturnal_right_foot_cramp_cnt"
+      - "joint_shoulder_pain_cnt"
+    clinical_note: "Started 2026-11-25; gated at Level 0 (Collecting Baseline) until valid_n >= 14."

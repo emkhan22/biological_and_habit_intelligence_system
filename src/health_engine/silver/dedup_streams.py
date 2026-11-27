@@ -229,3 +229,35 @@ def clean_simple_dated_tab(
             df = df.drop_duplicates(subset=present_sub, keep="last").copy()
     df["epistemic_class"] = "Measured"
     return add_display_date_col(df, "date").reset_index(drop=True)
+
+
+def clean_hourly_tab(raw_df: pd.DataFrame) -> pd.DataFrame:
+    """Clean hourly stream (Heart_Rate_Hourly, Steps_Hourly) on (date, hour_ist) without overwriting raw columns."""
+    if raw_df.empty:
+        return pd.DataFrame()
+    df = raw_df.copy()
+    if "date" not in df.columns or "hour_ist" not in df.columns:
+        return pd.DataFrame()
+    df["date"] = df["date"].map(to_iso_date_str)
+    hr_num = pd.to_numeric(df["hour_ist"].replace("", np.nan), errors="coerce")
+    valid = df["date"].notna() & hr_num.between(0, 23)
+    df = df.loc[valid].copy()
+    df["hour_ist_int"] = hr_num.loc[valid].astype(int)
+    df = df.drop_duplicates(subset=["date", "hour_ist_int"], keep="last").copy()
+    df["epistemic_class"] = "Measured"
+    return add_display_date_col(df.sort_values(["date", "hour_ist_int"]), "date").reset_index(drop=True)
+
+
+def clean_registry_tab(raw_df: pd.DataFrame, id_col: str | None = None) -> pd.DataFrame:
+    """Clean clinical or cycle registry tabs (Medications, Procedures, Cycles) preserving all source columns."""
+    if raw_df.empty:
+        return pd.DataFrame()
+    df = raw_df.copy()
+    if id_col and id_col in df.columns:
+        non_empty = df[id_col].astype(str).str.strip() != ""
+        df = df.loc[~(non_empty & df.duplicated(subset=[id_col], keep="last"))].copy()
+    else:
+        df = df.drop_duplicates(keep="last").copy()
+    df["epistemic_class"] = "Measured"
+    return df.reset_index(drop=True)
+

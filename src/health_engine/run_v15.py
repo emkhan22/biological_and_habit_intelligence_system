@@ -26,8 +26,10 @@ from health_engine.gold.tirzepatide_pk import build_tirzepatide_pk_tables
 from health_engine.io_adapter import GoogleSheetsAdapter, HealthIOAdapter, LocalCSVAdapter
 from health_engine.silver.cycle import build_silver_cycle_dim
 from health_engine.silver.dedup_streams import (
+    clean_hourly_tab,
     clean_journal_mood,
     clean_meds_log,
+    clean_registry_tab,
     clean_simple_dated_tab,
     clean_symptoms_log,
     clean_workouts,
@@ -53,12 +55,12 @@ def _max_date_across(tables: list[pd.DataFrame], date_cols: tuple[str, ...] = ("
     return max(candidates) if candidates else "2026-11-27"
 
 
-def run_v15_pipeline(
+def run_v15_with_silver_bundle(
     adapter: HealthIOAdapter,
     config_dir: Path | None = None,
     persist: bool = True,
-) -> dict[str, pd.DataFrame]:
-    """Execute full Bronze -> Silver -> Gold -> QA pipeline via the supplied I/O adapter."""
+) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame], SilverQALogger]:
+    """Execute full Bronze -> Silver -> V1.5 Gold pipeline and return (materialized_tables, silver_tables, qa_logger)."""
     thresholds_cfg, lab_norm_cfg = load_engine_configs(config_dir)
     qa = SilverQALogger()
 
@@ -69,6 +71,7 @@ def run_v15_pipeline(
     hc_sleep_hr_ev = adapter.read_source_tab("HealthConnectDaily", "Sleep_HR_Events")
     hc_vitals = adapter.read_source_tab("HealthConnectDaily", "Vitals")
     hc_hr_hourly = adapter.read_source_tab("HealthConnectDaily", "Heart_Rate_Hourly")
+    hc_steps_hourly = adapter.read_source_tab("HealthConnectDaily", "Steps_Hourly")
     hc_steps = adapter.read_source_tab("HealthConnectDaily", "Steps")
     hc_activity = adapter.read_source_tab("HealthConnectDaily", "Activity_Daily")
     hc_workouts = adapter.read_source_tab("HealthConnectDaily", "Workouts")
@@ -88,6 +91,8 @@ def run_v15_pipeline(
     gl_se = adapter.read_source_tab("Glapp Data", "side_effects")
 
     med_labs = adapter.read_source_tab("AggregatedMedicalRecords", "Lab_Results")
+    med_medications = adapter.read_source_tab("AggregatedMedicalRecords", "Medications")
+    med_procedures = adapter.read_source_tab("AggregatedMedicalRecords", "Procedures")
 
     # Micro Journal strictly reads ONLY the 3 non-smoking tabs
     mj_meds = adapter.read_source_tab("Micro Journal", "Meds_Log")
@@ -105,6 +110,12 @@ def run_v15_pipeline(
     silver_symptoms = clean_symptoms_log(mj_symptoms, thresholds_cfg, qa)
     silver_journal_mood = clean_journal_mood(mj_mood, qa)
     silver_workouts = clean_workouts(hc_workouts, qa)
+
+    silver_hr_hourly = clean_hourly_tab(hc_hr_hourly)
+    silver_steps_hourly = clean_hourly_tab(hc_steps_hourly)
+    silver_medications = clean_registry_tab(med_medications, id_col="Medication_ID")
+    silver_procedures = clean_registry_tab(med_procedures, id_col="Procedure_ID")
+    silver_cycles = clean_registry_tab(hc_cycles, id_col="cycle_id")
 
     silver_steps = clean_simple_dated_tab(hc_steps, "date", ["date"])
     silver_activity = clean_simple_dated_tab(hc_activity, "date", ["date"])
@@ -128,6 +139,8 @@ def run_v15_pipeline(
             silver_steps,
             silver_nutrition,
             silver_body_comp,
+            silver_hc_weight,
+            silver_glapp_weight,
             silver_glapp_shots,
             silver_glapp_mood,
             silver_meds,
@@ -169,7 +182,12 @@ def run_v15_pipeline(
         "Silver_Sleep_Stage_Timeline": sleep_silver_dict["Silver_Sleep_Stage_Timeline"],
         "Silver_Sleep_HR_Events": silver_sleep_hr_ev,
         "Silver_Vitals": silver_vitals,
+        "Silver_Heart_Rate_Hourly": silver_hr_hourly,
+        "Silver_Steps_Hourly": silver_steps_hourly,
         "Silver_Lab_Results": silver_labs,
+        "Silver_Medications": silver_medications,
+        "Silver_Procedures": silver_procedures,
+        "Silver_Cycles": silver_cycles,
         "Silver_Meds_Log": silver_meds,
         "Silver_Symptoms_Log": silver_symptoms,
         "Silver_Journal_Mood": silver_journal_mood,
@@ -178,6 +196,7 @@ def run_v15_pipeline(
         "Silver_Activity_Daily": silver_activity,
         "Silver_Nutrition": silver_nutrition,
         "Silver_Nutrition_Log": silver_nutr_log,
+        "Silver_Weight": silver_hc_weight,
         "Silver_HC_Weight": silver_hc_weight,
         "Silver_Body_Composition": silver_body_comp,
         "Silver_Body_Measurements": silver_body_meas,
@@ -245,6 +264,18 @@ def run_v15_pipeline(
         for tab_name, table_df in materialized.items():
             adapter.write_derived_table(tab_name, table_df)
 
+    return materialized, silver_tables, qa
+
+
+def run_v15_pipeline(
+    adapter: HealthIOAdapter,
+    config_dir: Path | None = None,
+    persist: bool = True,
+) -> dict[str, pd.DataFrame]:
+    """Execute full Bronze -> Silver -> Gold -> QA pipeline via the supplied I/O adapter."""
+    materialized, _, _ = run_v15_with_silver_bundle(
+        adapter=adapter, config_dir=config_dir, persist=persist
+    )
     return materialized
 
 

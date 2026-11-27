@@ -57,6 +57,15 @@ def load_engine_configs(config_dir: Path | None = None) -> tuple[dict[str, Any],
     return thresholds, lab_norm
 
 
+def load_treatments_config(config_dir: Path | None = None) -> dict[str, Any]:
+    """Load treatments.yaml registry from config directory."""
+    base = config_dir or (repo_root() / "config")
+    tpath = base / "treatments.yaml"
+    if not tpath.exists():
+        tpath = repo_root() / "config" / "treatments.yaml"
+    return load_yaml_config(tpath)
+
+
 def now_ist() -> datetime:
     """Return current timezone-aware timestamp in Asia/Kolkata."""
     return datetime.now(tz=IST)

@@ -1,0 +1,7 @@
+Medication_ID,Drug_Name_Generic,Brand_Name,Strength,Prescription_Date,Status
+MED-009,Tirzepatide,Inj. Yurpeak,2.5 mg -> 5.0 mg,2026-09-30,Currently Taking
+MED-010,Levothyroxine Sodium,T. Thyronorm 100 mcg,100 mcg,2026-09-30,Currently Taking
+MED-005,Multivitamin,TRAZER F FORTE,1 tab,2026-09-25,Currently Taking
+MED-012,Methylcobalamin + ALA + Biotin,T. Matilda Forte,1500 mcg,2026-09-30,Currently Taking
+MED-013,Magnesium Glycinate,HK Vitals Magnesium Glycinate,400 mg,2026-11-25,Currently Taking
+MED-014,Omega-3 Fish Oil,HK Vitals Triple Strength Fish Oil,1 cap,2026-11-25,Currently Taking
