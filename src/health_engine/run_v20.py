@@ -19,12 +19,15 @@ from health_engine.run_v15 import (
     run_v15_with_silver_bundle,
     save_silver_bundle_cache,
 )
+from health_engine.stats.calorie_balance_audit import build_gold_calorie_balance_audit
 from health_engine.stats.cardiac_efficiency import build_gold_cardiac_efficiency
 from health_engine.stats.correlations import build_gold_stats_correlations
 from health_engine.stats.cycle_stats import build_gold_cycle_phase_stats
 from health_engine.stats.episode_chains import build_gold_episode_chains
 from health_engine.stats.event_study import build_gold_intervention_events
+from health_engine.stats.habit_durability import build_gold_habit_durability
 from health_engine.stats.maturity import StatsAuditLogger
+from health_engine.stats.sweet_hunger import build_gold_sweet_hunger_analysis
 from health_engine.stats.tirzepatide_wave import build_gold_tirz_folded_wave
 from health_engine.stats.treatment_scorecards import build_gold_treatment_scorecards
 from health_engine.stats.weight_alignment import (
@@ -43,7 +46,7 @@ def run_v20_pipeline(
     reuse_mirror_dir: Path | None = None,
     cache_output_dir: Path | None = None,
 ) -> dict[str, pd.DataFrame]:
-    """Execute V1.5 Silver+Gold foundations followed by all V2.0 Statistical Inference modules."""
+    """Execute V1.5 Silver+Gold foundations followed by all V2.0/V3.0 Statistical Inference modules."""
     thresholds_cfg, _ = load_engine_configs(config_dir)
     treatments_cfg = load_treatments_config(config_dir)
     audit_logger = StatsAuditLogger()
@@ -168,6 +171,30 @@ def run_v20_pipeline(
         audit_logger=audit_logger,
     )
 
+    # 10. V3.0 Behavioral-Metabolic Audits: Habit Durability, Sweet -> Hunger, BMR/TDEE Calorie Audit
+    gold_habit_durability = build_gold_habit_durability(
+        gold_daily=gold_daily,
+        silver_shots=silver_tables.get("Silver_Glapp_Shots"),
+        thresholds_cfg=thresholds_cfg,
+        audit_logger=audit_logger,
+    )
+    cached_sweet_tags = adapter.read_derived_table("Gold_Sweet_Meal_Tags_AI")
+    gold_sweet_hunger = build_gold_sweet_hunger_analysis(
+        gold_daily=gold_daily,
+        silver_nutr_log=silver_tables.get("Silver_Nutrition_Log"),
+        sweet_tags_ai_df=cached_sweet_tags,
+        thresholds_cfg=thresholds_cfg,
+        audit_logger=audit_logger,
+    )
+    gold_calorie_audit = build_gold_calorie_balance_audit(
+        gold_daily=gold_daily,
+        gold_weight_intervals=gold_weight_intervals,
+        canonical_weighins=canonical_weighins,
+        silver_body_comp=silver_tables.get("Silver_Body_Composition"),
+        thresholds_cfg=thresholds_cfg,
+        audit_logger=audit_logger,
+    )
+
     stats_run_audit = audit_logger.to_dataframe()
     updated_qa_log = qa.to_dataframe()
 
@@ -184,6 +211,9 @@ def run_v20_pipeline(
         "Gold_Cardiac_Efficiency_Buckets": gold_cardiac_buckets,
         "Gold_Cycle_Phase_Stats": gold_cycle_phase_stats,
         "Gold_Episode_Chains": gold_episode_chains,
+        "Gold_Habit_Durability": gold_habit_durability,
+        "Gold_Sweet_Hunger_Analysis": gold_sweet_hunger,
+        "Gold_Calorie_Balance_Audit": gold_calorie_audit,
         "Stats_Run_Audit": stats_run_audit,
     }
 

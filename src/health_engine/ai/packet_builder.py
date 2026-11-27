@@ -540,6 +540,104 @@ def build_ai_briefing_packet(
         "open_retest_windows": open_windows,
     }
 
+    # 8. V3.0 Behavioral-Metabolic Audits (Habit Durability, Sweet -> Hunger, BMR/TDEE Calorie Audit)
+    hab_df = tables.get("Gold_Habit_Durability", pd.DataFrame())
+    sw_df = tables.get("Gold_Sweet_Hunger_Analysis", pd.DataFrame())
+    cal_df = tables.get("Gold_Calorie_Balance_Audit", pd.DataFrame())
+
+    habit_durability_section = {
+        "peak_vs_trough_carryover": _df_records(
+            hab_df.loc[hab_df["row_type"].astype(str) == "On_GLP1_Peak_vs_Trough"]
+            if not hab_df.empty and "row_type" in hab_df.columns
+            else pd.DataFrame(),
+            [
+                "period_id",
+                "protein_g_mean",
+                "clean_eating_score",
+                "steps_mean",
+                "hunger_mean",
+                "food_noise_mean",
+                "valid_n",
+            ],
+            limit=4,
+        ),
+        "post_glp1_weeks": _df_records(
+            hab_df.loc[hab_df["row_type"].astype(str) == "Post_GLP1_Week"]
+            if not hab_df.empty and "row_type" in hab_df.columns
+            else pd.DataFrame(),
+            [
+                "period_id",
+                "display_start_date",
+                "display_end_date",
+                "transition_trigger_reason",
+                "protein_g_mean",
+                "clean_eating_score",
+                "steps_mean",
+                "asleep_hr_mean",
+                "hunger_mean",
+                "delta_protein_vs_on_glp1",
+                "delta_hunger_vs_on_glp1",
+            ],
+            limit=6,
+        ),
+        "recent_weekly_durability": _df_records(
+            hab_df.loc[hab_df["row_type"].astype(str) == "Weekly_Durability"]
+            if not hab_df.empty and "row_type" in hab_df.columns
+            else pd.DataFrame(),
+            [
+                "period_id",
+                "display_start_date",
+                "glp1_regime",
+                "protein_target_consistency_pct",
+                "clean_eating_score",
+                "steps_target_consistency_pct",
+                "asleep_hr_mean",
+            ],
+            limit=4,
+        ),
+    }
+
+    sweet_hunger_section = _df_records(
+        sw_df,
+        [
+            "window_alignment",
+            "outcome_metric",
+            "sweet_days_n",
+            "non_sweet_logged_days_n",
+            "nutrition_coverage_pct",
+            "sweet_window_mean",
+            "non_sweet_window_mean",
+            "sweet_minus_nonsweet_diff",
+            "spearman_rho",
+            "reverse_causality_risk",
+            "pct_sweet_preceded_by_hunger_or_sleep_debt",
+            "maturity_level",
+            "epistemic_label",
+        ],
+        limit=6,
+    )
+
+    calorie_audit_section = _df_records(
+        cal_df,
+        [
+            "window_type",
+            "window_id",
+            "display_start_date",
+            "display_end_date",
+            "window_days",
+            "bmr_kcal_mean",
+            "tdee_est_kcal_mean",
+            "logged_kcal_mean",
+            "nutrition_coverage_pct",
+            "expected_delta_kg",
+            "actual_delta_kg",
+            "discrepancy_kcal_per_day",
+            "audit_classification",
+            "confounder_note",
+        ],
+        limit=6,
+    )
+
     packet: dict[str, Any] = {
         "meta": meta_section,
         "today_and_7d": today_7d_section,
@@ -548,6 +646,9 @@ def build_ai_briefing_packet(
         "nutrition_and_adherence": nutrition_section,
         "stats_and_ml_verified": stats_ml_section,
         "clinical_context": clinical_section,
+        "habit_durability": habit_durability_section,
+        "sweet_hunger": sweet_hunger_section,
+        "calorie_balance_audit": calorie_audit_section,
     }
 
     # Final runtime deep privacy assertion

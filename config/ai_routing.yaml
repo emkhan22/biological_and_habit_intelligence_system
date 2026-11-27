@@ -50,6 +50,15 @@ modules:
     downgrade_at_70pct: false
     target_tab: "Gold_Meal_Bioavailability_AI"
 
+  1D_sweet_meal_classifier:
+    cadence: "daily_ambiguous_only"
+    model: "gemini-3.5-flash-lite"
+    thinking_level: "minimal"
+    use_google_search: false
+    essential: false
+    downgrade_at_70pct: false
+    target_tab: "Gold_Sweet_Meal_Tags_AI"
+
   2A_daily_brief:
     cadence: "daily"
     model: "gemini-4-hydrogen"

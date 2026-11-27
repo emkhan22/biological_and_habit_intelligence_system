@@ -14,6 +14,7 @@ from typing import Any
 
 import pandas as pd
 
+from health_engine.ai.enricher_sweets import run_module_1d_sweet_classifier
 from health_engine.ai.modules import (
     VALID_SPECIALTIES,
     run_module_1b_journal_enricher,
@@ -51,6 +52,9 @@ UPSTREAM_TABLE_NAMES: tuple[str, ...] = (
     "Gold_Cardiac_Efficiency",
     "Gold_Cycle_Phase_Stats",
     "Gold_Episode_Chains",
+    "Gold_Habit_Durability",
+    "Gold_Sweet_Hunger_Analysis",
+    "Gold_Calorie_Balance_Audit",
     "Stats_Run_Audit",
     "Gold_ML_Model_Summary",
     "Gold_ML_Feature_Drivers",
@@ -160,6 +164,15 @@ def run_v28_ai_pipeline(
             router=router,
         )
         materialized_ai_tabs["Gold_Meal_Bioavailability_AI"] = df_1c
+
+        # 1D: Minimal-cost ambiguous sweet-meal classifier (cached by normalized_meal_name)
+        existing_1d = adapter.read_derived_table("Gold_Sweet_Meal_Tags_AI")
+        df_1d = run_module_1d_sweet_classifier(
+            silver_nutr_log=silver_tables.get("Silver_Nutrition_Log"),
+            existing_tags_df=existing_1d,
+            router=router,
+        )
+        materialized_ai_tabs["Gold_Sweet_Meal_Tags_AI"] = df_1d
 
         # 2A: Daily Holistic Brief & Coaching Nudges
         existing_2a = adapter.read_derived_table("AI_Insights_Cache")

@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+@theme {
+  --color-canvas: #0B0D12;
+  --color-card: #141821;
+  --color-subcard: #1B202C;
+  --color-border-subtle: #283042;
+  --color-accent-rose: #C06C9F;
+  --color-accent-emerald: #34D399;
+  --color-accent-violet: #A78BFA;
+  --color-accent-sky: #60A5FA;
+  --color-accent-amber: #FBBF24;
+  --color-accent-coral: #FB7185;
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  html,
+  body {
+    background-color: #0B0D12;
+    color: #F1F5F9;
+    font-family: var(--font-sans);
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.obsidian-card {
+  background-color: #141821;
+  border: 1px solid #283042;
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+.obsidian-subcard {
+  background-color: #1B202C;
+  border: 1px solid #283042;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .obsidian-card,
+  .obsidian-subcard {
+    background: #ffffff !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #0f172a !important;
+  }
+}

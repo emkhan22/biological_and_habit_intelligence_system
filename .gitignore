@@ -230,3 +230,8 @@ __marimo__/
 build_out/
 private_out/
 
+# Frontend dependencies & Cloudflare local state
+node_modules/
+.wrangler/
+*.tsbuildinfo
+

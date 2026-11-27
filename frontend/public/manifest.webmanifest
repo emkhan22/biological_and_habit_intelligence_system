@@ -1,0 +1,10 @@
+{
+  "name": "Personal Health Intelligence V3",
+  "short_name": "HealthIntel",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0B0D12",
+  "theme_color": "#0B0D12",
+  "description": "Personal Biological & Habit Intelligence PWA reading Health Intelligence Store V2",
+  "icons": []
+}

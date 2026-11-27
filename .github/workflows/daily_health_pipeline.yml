@@ -94,15 +94,16 @@ jobs:
           INPUT_BACKFILL_WEEKS: ${{ inputs.backfill_weeks }}
           INPUT_FORCE_MONTHLY: ${{ inputs.force_monthly }}
           INPUT_DOCTOR_SPECIALTY: ${{ inputs.doctor_prep_specialty }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           EXTRA_FLAGS="--daily"
-          if [ "$(date +%u)" = "5" ] || [ "$INPUT_FORCE_WEEKLY" = "true" ]; then
+          if [ "$INPUT_FORCE_WEEKLY" = "true" ] || { [ "$EVENT_NAME" = "schedule" ] && [ "$(date +%u)" = "5" ]; }; then
             EXTRA_FLAGS="$EXTRA_FLAGS --weekly"
           fi
           if [ "$INPUT_BACKFILL_WEEKS" = "true" ]; then
             EXTRA_FLAGS="$EXTRA_FLAGS --backfill-weeks"
           fi
-          if [ "$(date +%d)" = "01" ] || [ "$INPUT_FORCE_MONTHLY" = "true" ]; then
+          if [ "$INPUT_FORCE_MONTHLY" = "true" ] || { [ "$EVENT_NAME" = "schedule" ] && [ "$(date +%d)" = "01" ]; }; then
             EXTRA_FLAGS="$EXTRA_FLAGS --monthly"
           fi
           if [ -n "$INPUT_DOCTOR_SPECIALTY" ]; then
