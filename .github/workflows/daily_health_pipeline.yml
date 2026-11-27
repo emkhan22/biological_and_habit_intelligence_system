@@ -1,0 +1,48 @@
+name: Daily Health Intelligence Pipeline (V1.5)
+
+on:
+  schedule:
+    # 06:30 IST daily = 01:00 UTC
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-health-v15
+  cancel-in-progress: false
+
+jobs:
+  run-health-engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install package & dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run unit & privacy boundary verification gate
+        run: pytest
+
+      - name: Execute V1.5 Silver + Gold pipeline against Google Sheets
+        env:
+          TZ: "Asia/Kolkata"
+          GCP_HEALTH_SA_JSON: ${{ secrets.GCP_HEALTH_SA_JSON }}
+          SHEET_ID_HC: ${{ secrets.SHEET_ID_HC }}
+          SHEET_ID_GLAPP: ${{ secrets.SHEET_ID_GLAPP }}
+          SHEET_ID_MEDICAL: ${{ secrets.SHEET_ID_MEDICAL }}
+          SHEET_ID_JOURNAL: ${{ secrets.SHEET_ID_JOURNAL }}
+          SHEET_ID_STORE_V2: ${{ secrets.SHEET_ID_STORE_V2 }}
+        run: |
+          python -m health_engine.run_v15 --source sheets --output-dir ./build_out

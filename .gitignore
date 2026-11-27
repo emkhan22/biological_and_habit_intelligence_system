@@ -225,3 +225,8 @@ __marimo__/
 # Google Apps Script (clasp) credentials and local project config
 .clasprc.json
 .clasp.json
+
+# Pipeline build outputs (local CSV / Parquet mirrors)
+build_out/
+private_out/
+

@@ -1,0 +1,9 @@
+date,session_id,start_time_ist,end_time_ist,session_duration_min,sleep_onset_latency_min_est,awake_episode_count,awake_min,longest_awake_episode_min,light_min,deep_min,rem_min,unspecified_sleep_min,sleep_hr_avg,sleep_hr_median,sleep_hr_p95,sleep_hr_max,sleep_hr_sample_count,source_app,stage_coverage_pct,selection_note
+2026-06-10,101,2026-06-09 23:00:00,2026-06-10 07:00:00,480,10,2,30,20,250,100,100,0,64.0,63,70,85,450,Fitbit,100,Fitbit staged
+2026-06-11,102,2026-06-10 23:30:00,2026-06-11 07:30:00,480,12,3,40,20,240,110,90,0,65.0,64,72,88,440,Fitbit,100,Fitbit staged
+2026-06-12,103,2026-06-12 00:30:00,2026-06-12 08:00:00,450,8,2,30,15,230,95,95,0,63.0,62,69,82,420,Fitbit,100,Fitbit staged
+2026-11-22,700,2026-11-21 23:30:00,2026-11-22 07:30:00,480,,0,0,0,0,0,0,480,,,,,0,Fit,0,Google Fit unstaged
+2026-11-23,701,2026-11-23 15:00:00,2026-11-23 16:40:00,100,5,1,10,10,50,20,20,0,70.0,69,75,84,2400,Fitbit,100,Afternoon nap
+2026-11-23,702,2026-11-22 23:00:00,2026-11-23 05:30:00,390,10,3,30,15,180,60,120,0,69.0,68,78,96,9000,Fitbit,100,Primary nocturnal
+2026-11-24,703,2026-11-24 02:00:00,2026-11-24 08:30:00,390,10,2,30,20,210,60,90,0,71.0,70,80,98,9200,Fitbit,100,Late bedtime
+2026-11-25,704,2026-11-25 01:00:00,2026-11-25 08:00:00,420,8,2,30,18,210,90,90,0,68.0,67,76,92,9800,Fitbit,100,Fitbit staged

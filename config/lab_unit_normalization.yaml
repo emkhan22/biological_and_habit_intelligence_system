@@ -1,0 +1,208 @@
+# Analyte-Specific Laboratory Unit Normalization & Reference Validation Table
+# Rule 1 (AGENTS.md): Original_Value, Numeric_Value, Unit, and Standardized_Unit are NEVER overwritten.
+# Outputs populate Normalized_Value, Normalized_Unit, Normalization_Rule_ID, and Normalization_Valid_Flag.
+
+corruption_patterns:
+  # Spreadsheet auto-date conversions of numeric ranges (e.g., "2-5" -> "2026-05-02", "02-May", "1/2/2026")
+  iso_date_regex: '^\d{4}-\d{2}-\d{2}([T\s]\d{2}:\d{2}(:\d{2})?)?$'
+  slash_date_regex: '^\d{1,2}/\d{1,2}/\d{2,4}$'
+  month_name_date_regex: '^(\d{1,2}[-\s][A-Za-z]{3,9}|[A-Za-z]{3,9}[-\s]\d{1,2})([-\s]\d{2,4})?$'
+
+analytes:
+  "Platelet Count":
+    canonical_unit: "10^3/µL"
+    plausible_min: 10.0
+    plausible_max: 1500.0
+    conversions:
+      - rule_id: "PLT_IDENTITY_10E3_UL"
+        source_units: ["10^3/µL", "10^3/uL", "10^3/µI", "X 10³ / µL", "x10^3/uL", "thou/mm3", "10*3/uL"]
+        multiplier: 1.0
+      - rule_id: "PLT_CELLS_UL_TO_10E3_UL"
+        source_units: ["cells/µL", "cells/uL", "cells/cumm", "/cumm", "cells/cu.mm", "cumm"]
+        multiplier: 0.001
+      - rule_id: "PLT_LAKHS_TO_10E3_UL"
+        source_units: ["lakhs/cumm", "lakh/cumm", "10^5/µL"]
+        multiplier: 100.0
+
+  "WBC Count (Total Leucocyte Count)":
+    canonical_unit: "10^3/µL"
+    plausible_min: 0.5
+    plausible_max: 100.0
+    conversions:
+      - rule_id: "WBC_IDENTITY_10E3_UL"
+        source_units: ["10^3/µL", "10^3/uL", "10^3/µI", "X 10³ / µL", "x10^3/uL", "thou/mm3"]
+        multiplier: 1.0
+      - rule_id: "WBC_CELLS_UL_TO_10E3_UL"
+        source_units: ["cells/µL", "cells/uL", "cells/cumm", "/cumm", "cells/cu.mm", "cumm"]
+        multiplier: 0.001
+
+  "Total T3":
+    canonical_unit: "ng/mL"
+    plausible_min: 0.1
+    plausible_max: 10.0
+    conversions:
+      - rule_id: "TT3_IDENTITY_NG_ML"
+        source_units: ["ng/mL", "ng/ml"]
+        multiplier: 1.0
+      - rule_id: "TT3_NG_DL_TO_NG_ML"
+        source_units: ["ng/dL", "ng/dl"]
+        multiplier: 0.01
+
+  "Fasting Blood Glucose (FBS)":
+    canonical_unit: "mg/dL"
+    plausible_min: 30.0
+    plausible_max: 600.0
+    conversions:
+      - rule_id: "FBS_IDENTITY_MG_DL"
+        source_units: ["mg/dL", "mg/dl"]
+        multiplier: 1.0
+      - rule_id: "FBS_MMOL_L_TO_MG_DL"
+        source_units: ["mmol/L", "mmol/l"]
+        multiplier: 18.0182
+
+  "Fasting Insulin":
+    canonical_unit: "µU/mL"
+    plausible_min: 0.2
+    plausible_max: 300.0
+    conversions:
+      - rule_id: "INS_IDENTITY_UU_ML"
+        source_units: ["µU/mL", "uU/mL", "mcU/mL", "µIU/mL", "uIU/mL", "mIU/L"]
+        multiplier: 1.0
+      - rule_id: "INS_PMOL_L_TO_UU_ML"
+        source_units: ["pmol/L", "pmol/l"]
+        multiplier: 0.144
+
+  "HbA1c":
+    canonical_unit: "%"
+    plausible_min: 3.0
+    plausible_max: 20.0
+    conversions:
+      - rule_id: "HBA1C_IDENTITY_PCT"
+        source_units: ["%"]
+        multiplier: 1.0
+
+  "Triglycerides":
+    canonical_unit: "mg/dL"
+    plausible_min: 15.0
+    plausible_max: 2500.0
+    conversions:
+      - rule_id: "TG_IDENTITY_MG_DL"
+        source_units: ["mg/dL", "mg/dl"]
+        multiplier: 1.0
+
+  "HDL Cholesterol":
+    canonical_unit: "mg/dL"
+    plausible_min: 5.0
+    plausible_max: 150.0
+    conversions:
+      - rule_id: "HDL_IDENTITY_MG_DL"
+        source_units: ["mg/dL", "mg/dl"]
+        multiplier: 1.0
+
+  "LDL Cholesterol":
+    canonical_unit: "mg/dL"
+    plausible_min: 10.0
+    plausible_max: 400.0
+    conversions:
+      - rule_id: "LDL_IDENTITY_MG_DL"
+        source_units: ["mg/dL", "mg/dl"]
+        multiplier: 1.0
+
+  "Total Cholesterol":
+    canonical_unit: "mg/dL"
+    plausible_min: 40.0
+    plausible_max: 600.0
+    conversions:
+      - rule_id: "TCHOL_IDENTITY_MG_DL"
+        source_units: ["mg/dL", "mg/dl"]
+        multiplier: 1.0
+
+  "Non-HDL Cholesterol":
+    canonical_unit: "mg/dL"
+    plausible_min: 20.0
+    plausible_max: 500.0
+    conversions:
+      - rule_id: "NONHDL_IDENTITY_MG_DL"
+        source_units: ["mg/dL", "mg/dl"]
+        multiplier: 1.0
+
+  "MCV":
+    canonical_unit: "fL"
+    plausible_min: 40.0
+    plausible_max: 150.0
+    conversions:
+      - rule_id: "MCV_IDENTITY_FL"
+        source_units: ["fL", "fl"]
+        multiplier: 1.0
+
+  "RBC Count":
+    canonical_unit: "10^6/µL"
+    plausible_min: 1.0
+    plausible_max: 10.0
+    conversions:
+      - rule_id: "RBC_IDENTITY_10E6_UL"
+        source_units: ["10^6/µL", "10^6/uL", "X 10^6/µL", "mili/cu.mm", "mil/cumm", "million/cumm"]
+        multiplier: 1.0
+
+  "Hemoglobin":
+    canonical_unit: "g/dL"
+    plausible_min: 3.0
+    plausible_max: 25.0
+    conversions:
+      - rule_id: "HGB_IDENTITY_G_DL"
+        source_units: ["g/dL", "gm/dl", "gm/dL"]
+        multiplier: 1.0
+
+  "AST (SGOT)":
+    canonical_unit: "U/L"
+    plausible_min: 2.0
+    plausible_max: 5000.0
+    conversions:
+      - rule_id: "AST_IDENTITY_U_L"
+        source_units: ["U/L", "U/l", "IU/L"]
+        multiplier: 1.0
+
+  "ALT (SGPT)":
+    canonical_unit: "U/L"
+    plausible_min: 2.0
+    plausible_max: 5000.0
+    conversions:
+      - rule_id: "ALT_IDENTITY_U_L"
+        source_units: ["U/L", "U/l", "IU/L"]
+        multiplier: 1.0
+
+  "Neutrophils (%)":
+    canonical_unit: "%"
+    plausible_min: 0.0
+    plausible_max: 100.0
+    conversions:
+      - rule_id: "NEUT_PCT_IDENTITY"
+        source_units: ["%"]
+        multiplier: 1.0
+
+  "Lymphocytes (%)":
+    canonical_unit: "%"
+    plausible_min: 0.0
+    plausible_max: 100.0
+    conversions:
+      - rule_id: "LYMPH_PCT_IDENTITY"
+        source_units: ["%"]
+        multiplier: 1.0
+
+  "TSH":
+    canonical_unit: "µIU/mL"
+    plausible_min: 0.005
+    plausible_max: 200.0
+    conversions:
+      - rule_id: "TSH_IDENTITY_UIU_ML"
+        source_units: ["µIU/mL", "µIU/ml", "uIU/ml", "uIU/mL", "mIU/L"]
+        multiplier: 1.0
+
+  "Serum Ferritin":
+    canonical_unit: "ng/mL"
+    plausible_min: 1.0
+    plausible_max: 5000.0
+    conversions:
+      - rule_id: "FERRITIN_IDENTITY_NG_ML"
+        source_units: ["ng/mL", "ng/ml", "µg/L"]
+        multiplier: 1.0

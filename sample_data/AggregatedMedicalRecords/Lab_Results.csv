@@ -1,0 +1,21 @@
+Record_ID,Original_Test_Name,Standardized_Test_Name,Original_Value,Numeric_Value,Unit,Standardized_Unit,Specimen_Type,Collection_DateTime,Source_Page
+LAB-001,Platelet Count,Platelet Count,250000,250000,cells/cumm,cells/µL,EDTA Blood,2026-10-10 08:00,1
+LAB-002,Total Leucocyte Count,WBC Count (Total Leucocyte Count),7400,7400,cells/cumm,cells/µL,EDTA Blood,2026-10-10 08:00,1
+LAB-003,Triiodothyronine Total,Total T3,115,115,ng/dl,ng/dL,Serum,2026-10-10 08:00,2
+LAB-004,Fasting Blood Sugar,Fasting Blood Glucose (FBS),95,95,mg/dL,mg/dL,Fluoride Plasma,2026-10-10 08:00,2
+LAB-005,Fasting Insulin,Fasting Insulin,16.2,16.2,mcU/mL,µU/mL,Serum,2026-10-10 08:00,2
+LAB-006,Triglycerides,Triglycerides,150,150,mg/dL,mg/dL,Serum,2026-10-10 08:00,3
+LAB-007,HDL Cholesterol,HDL Cholesterol,45,45,mg/dL,mg/dL,Serum,2026-10-10 08:00,3
+LAB-008,Total Cholesterol,Total Cholesterol,195,195,mg/dL,mg/dL,Serum,2026-10-10 08:00,3
+LAB-009,MCV,MCV,84,84,fL,fL,EDTA Blood,2026-10-10 08:00,1
+LAB-010,RBC Count,RBC Count,4.8,4.8,mil/cumm,10^6/µL,EDTA Blood,2026-10-10 08:00,1
+LAB-011,SGOT (AST),AST (SGOT),28,28,U/L,U/L,Serum,2026-10-10 08:00,4
+LAB-012,SGPT (ALT),ALT (SGPT),36,36,U/L,U/L,Serum,2026-10-10 08:00,4
+LAB-013,Neutrophils,Neutrophils (%),60,60,%,%,EDTA Blood,2026-10-10 08:00,1
+LAB-014,Lymphocytes,Lymphocytes (%),30,30,%,%,EDTA Blood,2026-10-10 08:00,1
+LAB-015,Random Blood Glucose,Fasting Blood Glucose (FBS),130,130,mg/dL,mg/dL,Random Plasma,2026-10-15 17:00,1
+LAB-016,Fasting Insulin,Fasting Insulin,14.0,14.0,µU/mL,µU/mL,Serum,2026-10-15 17:00,1
+LAB-017,Triglycerides,Triglycerides,140,140,mg/dL,mg/dL,Serum,2026-10-15 17:00,1
+LAB-018,Fasting Blood Sugar,Fasting Blood Glucose (FBS),92,92,mg/dL,mg/dL,Fluoride Plasma,2026-10-18 08:00,1
+LAB-019,Fasting Insulin,Fasting Insulin,12.0,12.0,µU/mL,µU/mL,Serum,2026-10-19 08:00,1
+LAB-020,Pus Cells,Urine Pus Cells (WBCs),2026-05-02,,/hpf,/hpf,Urine,2026-10-10 08:00,5

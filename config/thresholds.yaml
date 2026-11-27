@@ -1,0 +1,77 @@
+# Thresholds, Anthropometrics, Intervention Anchors & Maturity Gates
+# Governed by AGENTS.md — all timestamps evaluated in Asia/Kolkata (IST)
+
+engine_version: "v1.5.0"
+timezone: "Asia/Kolkata"
+target_store_name: "Health_Intelligence_Store_v2"
+
+patient_profile:
+  dob: "1994-09-22"
+  height_cm: 163.0
+
+calendar_spine:
+  start_date: "2025-06-05"
+
+phase_anchors:
+  pre_oct_baseline:
+    start_date: "2026-05-01"
+    end_date: "2026-09-30"
+  oct7_baseline_weight_kg: 108.3
+  active_glp1_phase:
+    start_date: "2026-10-21"
+  menstrual_ownership:
+    flo_end_date: "2026-11-05"
+    fitbit_hc_start_date: "2026-11-06"
+
+silver_gates:
+  sleep:
+    allowed_staged_source: "Fitbit"
+    required_stage_coverage_pct: 100.0
+    min_nocturnal_asleep_min: 120.0
+    bedtime_evening_pivot_hr: 18.0
+  vitals:
+    min_hr_hours_covered: 18
+    high_freq_era_start_date: "2026-05-01"
+    daytime_start_hour_ist: 8
+    daytime_end_hour_ist: 21
+    min_daytime_hours: 6
+  symptom_canonical_overrides:
+    "right foot cramps": "Right Foot Cramp"
+    "left foot cramps": "Left Foot Cramp"
+    "foot cramps": "Foot Cramp"
+    "leg cramps": "Leg Cramp"
+    "muscle cramps": "Muscle Cramp"
+    "stomach cramps": "Stomach Cramp"
+    "abdominal cramps": "Abdominal Cramp"
+    "headaches": "Headache"
+    "migraines": "Migraine"
+    "chills": "Chills"
+    "hives": "Hives"
+
+pharmacokinetics:
+  tirzepatide:
+    half_life_days: 5.0
+    ka_per_day: 1.8
+    daily_eval_time_ist: "12:00:00"
+    default_shot_time_ist: "12:00"
+
+bioavailability_gates:
+  thyronorm_optimal_fasting_min: 45.0
+  thyronorm_acceptable_fasting_min: 30.0
+  fat_soluble_window_min: 90.0
+  fat_soluble_min_fat_g: 10.0
+
+clinical_screening:
+  ast_uln_u_l: 40.0
+  fib4_age_caveat_max_years: 35.0
+  caveats:
+    mentzer: "Microcytosis screening context only; not a direct iron-repletion measure."
+    fib4_apri: "Reduced diagnostic accuracy under age 35; screening context only, not a fibrosis clearance."
+
+rolling_maturity_gates:
+  windows_days: [7, 14, 28]
+  min_periods:
+    7: 3
+    14: 5
+    28: 10
+  robust_mad_scale: 1.4826
