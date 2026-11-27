@@ -1,7 +1,7 @@
 # Thresholds, Anthropometrics, Intervention Anchors & Maturity Gates
 # Governed by AGENTS.md — all timestamps evaluated in Asia/Kolkata (IST)
 
-engine_version: "v2.5.0"
+engine_version: "v2.8.0"
 timezone: "Asia/Kolkata"
 target_store_name: "Health_Intelligence_Store_v2"
 

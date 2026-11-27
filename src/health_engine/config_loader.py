@@ -75,6 +75,15 @@ def load_journal_themes_config(config_dir: Path | None = None) -> dict[str, Any]
     return load_yaml_config(jpath)
 
 
+def load_ai_routing_config(config_dir: Path | None = None) -> dict[str, Any]:
+    """Load ai_routing.yaml model routing & ₹500 budget circuit breaker configuration."""
+    base = config_dir or (repo_root() / "config")
+    apath = base / "ai_routing.yaml"
+    if not apath.exists():
+        apath = repo_root() / "config" / "ai_routing.yaml"
+    return load_yaml_config(apath)
+
+
 def now_ist() -> datetime:
     """Return current timezone-aware timestamp in Asia/Kolkata."""
     return datetime.now(tz=IST)

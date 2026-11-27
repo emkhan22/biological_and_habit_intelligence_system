@@ -16,7 +16,7 @@ concurrency:
 jobs:
   run-private-smoking:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -32,7 +32,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .
 
-      - name: Sync isolated Smoking_Log (Silver + V2.0 Stats + V2.5 ML) to Smoking_Private_Store
+      - name: Sync isolated Smoking_Log (Silver + V2.0 Stats + V2.5 ML + V2.8 Weekly AI Coach) to Smoking_Private_Store
         # Strictly isolated credentials; zero artifact uploads; zero raw row stdout logging
         env:
           TZ: "Asia/Kolkata"
@@ -40,6 +40,8 @@ jobs:
           SHEET_ID_JOURNAL: ${{ secrets.SHEET_ID_JOURNAL }}
           SHEET_ID_SMOKING_STORE: ${{ secrets.SHEET_ID_SMOKING_STORE }}
           SHEET_ID_STORE_V2: ${{ secrets.SHEET_ID_STORE_V2 }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           if [ -z "$GCP_SMOKING_SA_JSON" ] || [ -z "$SHEET_ID_SMOKING_STORE" ] || [ -z "$SHEET_ID_JOURNAL" ]; then
             echo "Skipping private_smoking sync: one or more required secrets (GCP_SMOKING_SA_JSON, SHEET_ID_JOURNAL, SHEET_ID_SMOKING_STORE) are not configured yet."
@@ -47,3 +49,6 @@ jobs:
           fi
           python -m private_smoking.run_private --source sheets
           python -m private_smoking.run_private_ml --source sheets
+          if [ "$(date +%u)" = "5" ] || [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            python -m private_smoking.run_private_ai --source sheets
+          fi

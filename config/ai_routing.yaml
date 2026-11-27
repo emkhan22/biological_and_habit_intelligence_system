@@ -1,0 +1,129 @@
+# V2.8 Model-Routed AI Synthesis Layer & ₹500/Month Budget Circuit Breaker Configuration
+version: "v2.8.0"
+
+budget:
+  monthly_cap_inr: 500.0
+  downgrade_threshold_inr: 350.0          # >= ₹350 (70%): downgrade 2A & 4A -> gemini-3.5-flash-lite
+  skip_non_essential_threshold_inr: 450.0 # >= ₹450 (90%): skip 3C_research_pulse & 1C_meal_bioavailability
+  hard_stop_threshold_inr: 500.0          # >= ₹500 (100%): block all Gemini calls -> Deterministic_Fallback
+  private_monthly_subcap_inr: 75.0        # Isolated subcap inside Smoking_Private_Store!Private_AI_Cost_Ledger
+  usd_to_inr: 95.23
+  free_monthly_search_queries: 5000
+  search_price_per_1k_usd: 14.0
+
+http:
+  timeout_ms: 360000                      # 360s (>= 300s required for scheduled thinking jobs; ms in google-genai)
+  max_api_retries: 3
+  base_backoff_sec: 2.0
+  schema_validation_retries: 1
+
+pricing_per_1m_usd:
+  gemini-3.5-flash-lite:
+    input: 0.30
+    output: 2.50
+  gemini-4-hydrogen:
+    input: 1.50
+    output: 7.50
+  gemini-4-neon:
+    input: 3.00
+    output: 15.00
+  gemini-4-argon:
+    input: 4.00
+    output: 20.00
+
+modules:
+  1B_journal_nlp:
+    cadence: "daily"
+    model: "gemini-3.5-flash-lite"
+    thinking_level: "minimal"
+    use_google_search: false
+    essential: true
+    downgrade_at_70pct: false
+    target_tab: "Gold_Journal_Themes_AI"
+
+  1C_meal_bioavailability:
+    cadence: "daily"
+    model: "gemini-3.5-flash-lite"
+    thinking_level: "minimal"
+    use_google_search: false
+    essential: false
+    downgrade_at_70pct: false
+    target_tab: "Gold_Meal_Bioavailability_AI"
+
+  2A_daily_brief:
+    cadence: "daily"
+    model: "gemini-4-hydrogen"
+    thinking_level: "medium"
+    use_google_search: false
+    essential: true
+    downgrade_at_70pct: true
+    downgrade_model: "gemini-3.5-flash-lite"
+    downgrade_thinking_level: "minimal"
+    target_tab: "AI_Insights_Cache"
+
+  2B_weekly_review:
+    cadence: "weekly_friday"
+    model: "gemini-4-neon"
+    thinking_level: "high"
+    use_google_search: false
+    essential: true
+    downgrade_at_70pct: false
+    target_tab: "AI_Weekly_Briefs"
+
+  2C_monthly_review:
+    cadence: "monthly_1st"
+    model: "gemini-4-argon"
+    thinking_level: "high"
+    use_google_search: false
+    essential: true
+    downgrade_at_70pct: false
+    target_tab: "AI_Monthly_Briefs"
+
+  3A_peer_expectedness:
+    cadence: "weekly_friday"
+    model: "gemini-4-neon"
+    thinking_level: "high"
+    use_google_search: true
+    essential: true
+    downgrade_at_70pct: false
+    target_tab: "AI_Peer_Expectedness"
+
+  3B_doctor_visit_prep:
+    cadence: "on_demand"
+    model: "gemini-4-argon"
+    thinking_level: "high"
+    use_google_search: true
+    essential: true
+    downgrade_at_70pct: false
+    target_tab: "AI_Doctor_Briefs"
+
+  3C_research_pulse:
+    cadence: "weekly_friday"
+    model: "gemini-4-hydrogen"
+    thinking_level: "medium"
+    use_google_search: true
+    essential: false
+    downgrade_at_70pct: false
+    target_tab: "AI_Research_Pulse"
+
+  4A_interactive_qa_and_simulator:
+    cadence: "on_demand"
+    model: "gemini-4-hydrogen"
+    thinking_level: "medium"
+    use_google_search: true
+    essential: true
+    downgrade_at_70pct: true
+    downgrade_model: "gemini-3.5-flash-lite"
+    downgrade_thinking_level: "minimal"
+    target_tab: null
+
+  4B_private_craving_coach:
+    cadence: "weekly_isolated"
+    model: "gemini-4-hydrogen"
+    thinking_level: "medium"
+    use_google_search: false
+    essential: true
+    downgrade_at_70pct: false
+    isolated_private_only: true
+    min_events_30d: 5
+    target_tab: "Private_AI_Coach"

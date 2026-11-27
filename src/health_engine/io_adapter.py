@@ -121,6 +121,11 @@ class HealthIOAdapter(ABC):
     def write_derived_table(self, tab_name: str, df: pd.DataFrame) -> None:
         """Write a validated Silver, Gold, or QA table."""
 
+    def read_derived_table(self, tab_name: str) -> pd.DataFrame:
+        """Read an existing derived Silver, Gold, AI, or Ledger table if present (else empty DataFrame)."""
+        enforce_non_smoking_boundary("Health_Intelligence_Store_v2", tab_name)
+        return pd.DataFrame()
+
 
 class LocalCSVAdapter(HealthIOAdapter):
     """Offline CSV/Parquet adapter reading from --data-dir and exporting to --output-dir."""
@@ -160,6 +165,16 @@ class LocalCSVAdapter(HealthIOAdapter):
         # dtype=str prevents pandas from silently coercing "2-5" or leading zeros;
         # downstream Silver modules parse exact numeric/timestamp columns explicitly.
         return pd.read_csv(csv_path, dtype=str, keep_default_na=False)
+
+    def read_derived_table(self, tab_name: str) -> pd.DataFrame:
+        enforce_non_smoking_boundary("Health_Intelligence_Store_v2", tab_name)
+        pq_path = self.output_dir / f"{tab_name}.parquet"
+        csv_path = self.output_dir / f"{tab_name}.csv"
+        if pq_path.exists():
+            return pd.read_parquet(pq_path)
+        if csv_path.exists():
+            return pd.read_csv(csv_path)
+        return pd.DataFrame()
 
     def write_derived_table(self, tab_name: str, df: pd.DataFrame) -> None:
         enforce_non_smoking_boundary("Health_Intelligence_Store_v2", tab_name)
@@ -279,6 +294,36 @@ class GoogleSheetsAdapter(HealthIOAdapter):
             if any(str(cell).strip() != "" for cell in r)
         ]
         return pd.DataFrame([r[: len(headers)] for r in data_rows], columns=headers, dtype=str)
+
+    def read_derived_table(self, tab_name: str) -> pd.DataFrame:
+        enforce_non_smoking_boundary("Health_Intelligence_Store_v2", tab_name)
+        if not self.target_store_id:
+            if self.local_mirror_dir is not None:
+                return LocalCSVAdapter(self.local_mirror_dir, self.local_mirror_dir).read_derived_table(
+                    tab_name
+                )
+            return pd.DataFrame()
+        ws_map = self._get_worksheet_map(self.target_store_id)
+        ws = ws_map.get(tab_name)
+        if ws is None:
+            if self.local_mirror_dir is not None:
+                return LocalCSVAdapter(self.local_mirror_dir, self.local_mirror_dir).read_derived_table(
+                    tab_name
+                )
+            return pd.DataFrame()
+        values = self._with_backoff(
+            ws.get_all_values,
+            value_render_option=ValueRenderOption.formatted,
+        )
+        if not values:
+            return pd.DataFrame()
+        headers = [str(h).strip() for h in values[0]]
+        data_rows = [
+            r + [""] * max(0, len(headers) - len(r))
+            for r in values[1:]
+            if any(str(cell).strip() != "" for cell in r)
+        ]
+        return pd.DataFrame([r[: len(headers)] for r in data_rows], columns=headers)
 
     def write_derived_table(self, tab_name: str, df: pd.DataFrame) -> None:
         enforce_non_smoking_boundary("Health_Intelligence_Store_v2", tab_name)

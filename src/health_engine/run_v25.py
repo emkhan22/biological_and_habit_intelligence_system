@@ -37,6 +37,7 @@ def run_v25_pipeline(
     persist: bool = True,
     persist_upstream: bool = True,
     reuse_mirror_dir: Path | None = None,
+    cache_output_dir: Path | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Execute V2.5 Progressive ML Engine on top of V1.5 Silver/Gold and V2.0 Weight Intervals."""
     thresholds_cfg, _ = load_engine_configs(config_dir)
@@ -58,9 +59,11 @@ def run_v25_pipeline(
             config_dir=config_dir,
             persist=persist_upstream,
             persist_v15=persist_upstream,
+            cache_output_dir=cache_output_dir,
         )
         # Reload Silver bundle via cached or in-memory V1.5 run for Micro Journal NLP
-        cached_after = load_cached_v15_bundle(reuse_mirror_dir) if reuse_mirror_dir is not None else None
+        check_dir = reuse_mirror_dir or cache_output_dir
+        cached_after = load_cached_v15_bundle(check_dir) if check_dir is not None else None
         if cached_after is not None:
             _, silver_tables, _ = cached_after
         else:
@@ -178,6 +181,7 @@ def main(argv: list[str] | None = None) -> int:
         persist=True,
         persist_upstream=not (args.skip_upstream_persist or args.reuse_local_mirror),
         reuse_mirror_dir=args.output_dir if args.reuse_local_mirror else None,
+        cache_output_dir=args.output_dir,
     )
     v25_keys = [
         "Gold_ML_Model_Summary",

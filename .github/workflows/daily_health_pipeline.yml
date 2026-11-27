@@ -1,22 +1,43 @@
-name: Daily Health Intelligence Pipeline (V1.5 + V2.0 + V2.5)
+name: Daily Health Intelligence Pipeline (V1.5 + V2.0 + V2.5 + V2.8 AI)
 
 on:
   schedule:
     # 06:30 IST daily = 01:00 UTC
     - cron: "0 1 * * *"
   workflow_dispatch:
+    inputs:
+      force_weekly:
+        description: "Force Friday Weekly AI Review + Peer Check + Research Pulse (2B, 3A, 3C)"
+        required: false
+        default: false
+        type: boolean
+      backfill_weeks:
+        description: "Backfill historical Thu-Wed Weekly AI Reviews since 2026-10-21 (Module 2B)"
+        required: false
+        default: false
+        type: boolean
+      force_monthly:
+        description: "Force Monthly Whole-Body Clinical Review (2C)"
+        required: false
+        default: false
+        type: boolean
+      doctor_prep_specialty:
+        description: "Optional Specialist Doctor Visit Prep (Endocrinology, General_Medicine, Gynaecology, Orthopaedics_Physio, Whole_Body)"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: daily-health-v25
+  group: daily-health-v28
   cancel-in-progress: false
 
 jobs:
   run-health-engine:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -32,7 +53,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      - name: Run unit & privacy boundary verification gate
+      - name: Run unit, statistical, ML, AI & privacy boundary verification gate
         run: pytest
 
       - name: Execute V1.5 Silver Cleaning Gate + Gold Foundations
@@ -62,3 +83,29 @@ jobs:
           SHEET_ID_STORE_V2: ${{ secrets.SHEET_ID_STORE_V2 }}
         run: |
           python -m health_engine.run_v25 --source sheets --output-dir ./build_out --reuse-local-mirror
+
+      - name: Execute V2.8 Model-Routed AI Synthesis Layer
+        env:
+          TZ: "Asia/Kolkata"
+          GCP_HEALTH_SA_JSON: ${{ secrets.GCP_HEALTH_SA_JSON }}
+          SHEET_ID_STORE_V2: ${{ secrets.SHEET_ID_STORE_V2 }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          INPUT_FORCE_WEEKLY: ${{ inputs.force_weekly }}
+          INPUT_BACKFILL_WEEKS: ${{ inputs.backfill_weeks }}
+          INPUT_FORCE_MONTHLY: ${{ inputs.force_monthly }}
+          INPUT_DOCTOR_SPECIALTY: ${{ inputs.doctor_prep_specialty }}
+        run: |
+          EXTRA_FLAGS="--daily"
+          if [ "$(date +%u)" = "5" ] || [ "$INPUT_FORCE_WEEKLY" = "true" ]; then
+            EXTRA_FLAGS="$EXTRA_FLAGS --weekly"
+          fi
+          if [ "$INPUT_BACKFILL_WEEKS" = "true" ]; then
+            EXTRA_FLAGS="$EXTRA_FLAGS --backfill-weeks"
+          fi
+          if [ "$(date +%d)" = "01" ] || [ "$INPUT_FORCE_MONTHLY" = "true" ]; then
+            EXTRA_FLAGS="$EXTRA_FLAGS --monthly"
+          fi
+          if [ -n "$INPUT_DOCTOR_SPECIALTY" ]; then
+            EXTRA_FLAGS="$EXTRA_FLAGS --doctor-prep $INPUT_DOCTOR_SPECIALTY"
+          fi
+          python -m health_engine.run_v28_ai --source sheets --output-dir ./build_out --reuse-local-mirror $EXTRA_FLAGS
