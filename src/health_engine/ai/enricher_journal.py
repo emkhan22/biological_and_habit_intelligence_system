@@ -7,6 +7,7 @@ and `Silver_Symptoms_Log` (cached by `event_id` so historical rows are never re-
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import pandas as pd
@@ -17,6 +18,20 @@ from health_engine.ai.router import ModelRouter
 from health_engine.ai.schemas import JournalEnrichmentBatchSchema
 from health_engine.config_loader import iso_to_display_date, now_ist_str, to_iso_date_str
 from health_engine.ml.journal_nlp import _sanitize_event_id
+
+_PRIVATE_HABIT_REDACTION_RE = re.compile(
+    r"\b(cigarettes?|cigs?|smoking|smoked|smoke_log|smoking_private|smk-[a-z0-9-]+)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _redact_private_habit_mentions(text: Any) -> str:
+    """Scrub incidental free-text mentions in non-smoking Journal_Mood/Symptoms_Log notes."""
+    s = str(text or "").strip()
+    if not s:
+        return ""
+    return _PRIVATE_HABIT_REDACTION_RE.sub("[redacted_private_habit]", s)
+
 
 JOURNAL_AI_COLUMNS: list[str] = [
     "event_id",
@@ -38,7 +53,7 @@ JOURNAL_AI_COLUMNS: list[str] = [
 SYSTEM_PROMPT_1B = """You are a clinical & behavioral health NLP tagger for an Indian user's non-smoking Micro Journal (English + Hinglish notes).
 Extract structured multi-label themes, concise trigger context, pain-radiation notes (e.g., right shoulder/neck/arm ache or calf cramp, else 'None'), and nuanced sentiment polarity ('Positive' | 'Negative' | 'Mixed' | 'Neutral') for each event_id.
 Canonical themes to prioritize when applicable: Work_Overwhelm, Late_Night_Work, Weigh_In_Anxiety, Appetite_Suppression_Meal_Skip, GI_Distress, Musculoskeletal_Pain, Nocturnal_Cramp, Missed_Walk_Guilt, Positive_Momentum, Fatigue_Sleep_Debt.
-Epistemic contract: set epistemic_label = 'Descriptive' on every item and never make causal medical claims."""
+Ignore any '[redacted_private_habit]' placeholders. Epistemic contract: set epistemic_label = 'Descriptive' on every item and never make causal medical claims."""
 
 
 def _collect_journal_candidates(
@@ -74,10 +89,10 @@ def _collect_journal_candidates(
                     "date": ds,
                     "display_date": iso_to_display_date(ds) or ds,
                     "time_ist": tm,
-                    "mood_tags": str(r.get("Mood_Tags") or ""),
-                    "context_tag": str(r.get("Context_Tag") or ""),
+                    "mood_tags": _redact_private_habit_mentions(r.get("Mood_Tags")),
+                    "context_tag": _redact_private_habit_mentions(r.get("Context_Tag")),
                     "symptom": "",
-                    "raw_text": str(r.get("Summary") or r.get("Notes") or ""),
+                    "raw_text": _redact_private_habit_mentions(r.get("Summary") or r.get("Notes")),
                     "deterministic_themes": det_th,
                     "deterministic_sentiment": det_sent,
                 }
@@ -100,9 +115,9 @@ def _collect_journal_candidates(
                     "display_date": iso_to_display_date(ds) or ds,
                     "time_ist": tm,
                     "mood_tags": "",
-                    "context_tag": str(r.get("Context_Tag") or ""),
-                    "symptom": str(r.get("Normalized_Symptom") or r.get("Symptom") or ""),
-                    "raw_text": str(r.get("Notes") or ""),
+                    "context_tag": _redact_private_habit_mentions(r.get("Context_Tag")),
+                    "symptom": _redact_private_habit_mentions(r.get("Normalized_Symptom") or r.get("Symptom")),
+                    "raw_text": _redact_private_habit_mentions(r.get("Notes")),
                     "deterministic_themes": det_th,
                     "deterministic_sentiment": det_sent,
                 }
