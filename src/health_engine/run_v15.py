@@ -267,6 +267,62 @@ def run_v15_with_silver_bundle(
     return materialized, silver_tables, qa
 
 
+def save_silver_bundle_cache(output_dir: Path, silver_tables: dict[str, pd.DataFrame]) -> None:
+    """Persist validated Silver tables locally to output_dir/_silver_cache for downstream V2.0/V2.5 stages."""
+    cache_dir = Path(output_dir) / "_silver_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    for name, df in silver_tables.items():
+        pq_df = df.copy()
+        for col in pq_df.columns:
+            if pq_df[col].dtype == object:
+                pq_df[col] = pq_df[col].astype("string")
+        pq_df.to_parquet(cache_dir / f"{name}.parquet", index=False)
+
+
+def load_cached_v15_bundle(
+    output_dir: Path,
+) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame], SilverQALogger] | None:
+    """Reload cached V1.5 Gold + Silver Parquet bundle from output_dir when available."""
+    out_path = Path(output_dir)
+    cache_dir = out_path / "_silver_cache"
+    if not cache_dir.exists() or not (out_path / "Gold_Daily_Unified.parquet").exists():
+        return None
+
+    v15_names = (
+        "Silver_QA_Log",
+        "Silver_Sleep_Sessions",
+        "Silver_Sleep_Daily",
+        "Silver_Vitals",
+        "Silver_Lab_Results",
+        "Silver_Cycle_Dim",
+        "Silver_Meds_Log",
+        "Silver_Symptoms_Log",
+        "Silver_Workouts",
+        "Gold_Daily_Unified",
+        "Gold_Tirzepatide_PK_Hourly",
+        "Gold_Personal_Baselines",
+        "Gold_Baseline_Summary",
+        "Gold_Sleep_HR_Spikes",
+        "Gold_Event_Windows",
+        "Gold_Med_Bioavailability",
+        "Gold_Clinical_Indices",
+    )
+    v15_tables: dict[str, pd.DataFrame] = {}
+    for tname in v15_names:
+        p = out_path / f"{tname}.parquet"
+        v15_tables[tname] = pd.read_parquet(p) if p.exists() else pd.DataFrame()
+
+    silver_tables: dict[str, pd.DataFrame] = {}
+    for pq_file in sorted(cache_dir.glob("*.parquet")):
+        silver_tables[pq_file.stem] = pd.read_parquet(pq_file)
+
+    qa = SilverQALogger()
+    if not v15_tables["Silver_QA_Log"].empty:
+        qa.records = v15_tables["Silver_QA_Log"].to_dict(orient="records")
+
+    return v15_tables, silver_tables, qa
+
+
 def run_v15_pipeline(
     adapter: HealthIOAdapter,
     config_dir: Path | None = None,
@@ -319,7 +375,10 @@ def main(argv: list[str] | None = None) -> int:
     else:
         adapter = GoogleSheetsAdapter(local_mirror_dir=args.output_dir)
 
-    outputs = run_v15_pipeline(adapter=adapter, config_dir=args.config_dir, persist=True)
+    outputs, silver_tables, _ = run_v15_with_silver_bundle(
+        adapter=adapter, config_dir=args.config_dir, persist=True
+    )
+    save_silver_bundle_cache(args.output_dir, silver_tables)
     summary = ", ".join(f"{k}={len(v)}" for k, v in outputs.items())
     print(f"[health_engine v1.5] Completed successfully | {summary}")
     return 0

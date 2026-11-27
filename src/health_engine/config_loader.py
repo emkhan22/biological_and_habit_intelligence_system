@@ -66,6 +66,15 @@ def load_treatments_config(config_dir: Path | None = None) -> dict[str, Any]:
     return load_yaml_config(tpath)
 
 
+def load_journal_themes_config(config_dir: Path | None = None) -> dict[str, Any]:
+    """Load journal_themes.yaml deterministic NLP taxonomy from config directory."""
+    base = config_dir or (repo_root() / "config")
+    jpath = base / "journal_themes.yaml"
+    if not jpath.exists():
+        jpath = repo_root() / "config" / "journal_themes.yaml"
+    return load_yaml_config(jpath)
+
+
 def now_ist() -> datetime:
     """Return current timezone-aware timestamp in Asia/Kolkata."""
     return datetime.now(tz=IST)

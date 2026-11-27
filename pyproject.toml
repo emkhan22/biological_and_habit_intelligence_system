@@ -4,15 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "personal-health-intelligence-engine"
-version = "2.0.0"
-description = "V2.0 Statistical Inference Engine + V1.5 Silver/Gold Foundations for the Personal Health Intelligence System"
+version = "2.5.0"
+description = "V2.5 Progressive ML Engine + V2.0 Statistical Inference + V1.5 Silver/Gold Foundations"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "pandas>=2.2.0",
-    "numpy>=1.26.0",
+    "numpy>=2.0.0",
     "scipy>=1.12.0",
-    "scikit-learn>=1.4.0",
+    "scikit-learn>=1.8.0,<2.0.0",
+    "shap>=0.46.0,<1.0.0",
     "pyyaml>=6.0.1",
     "pyarrow>=15.0.0",
     "gspread>=6.0.0",
@@ -28,7 +29,9 @@ dev = [
 [project.scripts]
 run-health-v15 = "health_engine.run_v15:main"
 run-health-v20 = "health_engine.run_v20:main"
+run-health-v25 = "health_engine.run_v25:main"
 run-private-smoking = "private_smoking.run_private:main"
+run-private-smoking-ml = "private_smoking.run_private_ml:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

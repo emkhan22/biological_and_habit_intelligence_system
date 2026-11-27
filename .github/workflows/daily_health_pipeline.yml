@@ -1,4 +1,4 @@
-name: Daily Health Intelligence Pipeline (V1.5 + V2.0)
+name: Daily Health Intelligence Pipeline (V1.5 + V2.0 + V2.5)
 
 on:
   schedule:
@@ -10,13 +10,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: daily-health-v20
+  group: daily-health-v25
   cancel-in-progress: false
 
 jobs:
   run-health-engine:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -35,7 +35,7 @@ jobs:
       - name: Run unit & privacy boundary verification gate
         run: pytest
 
-      - name: Execute V1.5 Silver/Gold + V2.0 Statistical Inference Engine against Google Sheets
+      - name: Execute V1.5 Silver Cleaning Gate + Gold Foundations
         env:
           TZ: "Asia/Kolkata"
           GCP_HEALTH_SA_JSON: ${{ secrets.GCP_HEALTH_SA_JSON }}
@@ -45,4 +45,20 @@ jobs:
           SHEET_ID_JOURNAL: ${{ secrets.SHEET_ID_JOURNAL }}
           SHEET_ID_STORE_V2: ${{ secrets.SHEET_ID_STORE_V2 }}
         run: |
-          python -m health_engine.run_v20 --source sheets --output-dir ./build_out
+          python -m health_engine.run_v15 --source sheets --output-dir ./build_out
+
+      - name: Execute V2.0 Statistical Inference Engine
+        env:
+          TZ: "Asia/Kolkata"
+          GCP_HEALTH_SA_JSON: ${{ secrets.GCP_HEALTH_SA_JSON }}
+          SHEET_ID_STORE_V2: ${{ secrets.SHEET_ID_STORE_V2 }}
+        run: |
+          python -m health_engine.run_v20 --source sheets --output-dir ./build_out --reuse-local-mirror
+
+      - name: Execute V2.5 Progressive ML Engine
+        env:
+          TZ: "Asia/Kolkata"
+          GCP_HEALTH_SA_JSON: ${{ secrets.GCP_HEALTH_SA_JSON }}
+          SHEET_ID_STORE_V2: ${{ secrets.SHEET_ID_STORE_V2 }}
+        run: |
+          python -m health_engine.run_v25 --source sheets --output-dir ./build_out --reuse-local-mirror

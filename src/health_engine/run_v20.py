@@ -14,7 +14,11 @@ import pandas as pd
 
 from health_engine.config_loader import load_engine_configs, load_treatments_config
 from health_engine.io_adapter import GoogleSheetsAdapter, HealthIOAdapter, LocalCSVAdapter
-from health_engine.run_v15 import run_v15_with_silver_bundle
+from health_engine.run_v15 import (
+    load_cached_v15_bundle,
+    run_v15_with_silver_bundle,
+    save_silver_bundle_cache,
+)
 from health_engine.stats.cardiac_efficiency import build_gold_cardiac_efficiency
 from health_engine.stats.correlations import build_gold_stats_correlations
 from health_engine.stats.cycle_stats import build_gold_cycle_phase_stats
@@ -36,16 +40,24 @@ def run_v20_pipeline(
     config_dir: Path | None = None,
     persist: bool = True,
     persist_v15: bool = True,
+    reuse_mirror_dir: Path | None = None,
+    cache_output_dir: Path | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Execute V1.5 Silver+Gold foundations followed by all V2.0 Statistical Inference modules."""
     thresholds_cfg, _ = load_engine_configs(config_dir)
     treatments_cfg = load_treatments_config(config_dir)
     audit_logger = StatsAuditLogger()
 
-    # 1. Obtain validated Silver & V1.5 Gold tables strictly via Silver Cleaning Gate
-    v15_tables, silver_tables, qa = run_v15_with_silver_bundle(
-        adapter=adapter, config_dir=config_dir, persist=persist_v15
-    )
+    # 1. Obtain validated Silver & V1.5 Gold tables from local mirror when requested, else run V1.5
+    cached = load_cached_v15_bundle(reuse_mirror_dir) if reuse_mirror_dir is not None else None
+    if cached is not None:
+        v15_tables, silver_tables, qa = cached
+    else:
+        v15_tables, silver_tables, qa = run_v15_with_silver_bundle(
+            adapter=adapter, config_dir=config_dir, persist=persist_v15
+        )
+        if cache_output_dir is not None:
+            save_silver_bundle_cache(cache_output_dir, silver_tables)
     qa_count_before_v20 = len(qa.records)
 
     gold_daily = v15_tables["Gold_Daily_Unified"]
@@ -223,6 +235,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip re-uploading V1.5 tabs when run immediately after run_v15.",
     )
+    parser.add_argument(
+        "--reuse-local-mirror",
+        action="store_true",
+        help="Reuse cached Silver & V1.5 Gold Parquet tables in --output-dir without re-reading Bronze Sheets.",
+    )
     return parser
 
 
@@ -239,7 +256,9 @@ def main(argv: list[str] | None = None) -> int:
         adapter=adapter,
         config_dir=args.config_dir,
         persist=True,
-        persist_v15=not args.skip_v15_persist,
+        persist_v15=not (args.skip_v15_persist or args.reuse_local_mirror),
+        reuse_mirror_dir=args.output_dir if args.reuse_local_mirror else None,
+        cache_output_dir=args.output_dir,
     )
     v20_keys = [
         "Gold_Weight_Intervals",

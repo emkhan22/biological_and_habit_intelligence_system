@@ -32,7 +32,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .
 
-      - name: Sync isolated Smoking_Log + V2.0 stats_smoking to Smoking_Private_Store
+      - name: Sync isolated Smoking_Log (Silver + V2.0 Stats + V2.5 ML) to Smoking_Private_Store
         # Strictly isolated credentials; zero artifact uploads; zero raw row stdout logging
         env:
           TZ: "Asia/Kolkata"
@@ -46,3 +46,4 @@ jobs:
             exit 0
           fi
           python -m private_smoking.run_private --source sheets
+          python -m private_smoking.run_private_ml --source sheets

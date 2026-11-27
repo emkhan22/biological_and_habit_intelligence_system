@@ -1,7 +1,7 @@
 # Thresholds, Anthropometrics, Intervention Anchors & Maturity Gates
 # Governed by AGENTS.md — all timestamps evaluated in Asia/Kolkata (IST)
 
-engine_version: "v2.0.0"
+engine_version: "v2.5.0"
 timezone: "Asia/Kolkata"
 target_store_name: "Health_Intelligence_Store_v2"
 
@@ -132,4 +132,36 @@ weight_alignment:
   fallback_evening_cutoff_hr: 18.0
   masld_milestones_pct: [7.0, 10.0]
   bmi_thresholds: [40.0, 35.0, 30.0, 25.0]
+
+v25_ml_gates:
+  daily_series:
+    level2_linear_min_n: 30
+    level3_tree_min_n: 100
+    level3_tree_min_effective_n: 40
+    ts_cv_splits: 5
+    ts_cv_gap: 1
+    block_bootstraps: 30
+    block_length_days: 5
+  weight_intervals:
+    level2_linear_min_intervals: 24
+    min_nutrition_coverage_pct: 0.60
+    ts_cv_splits: 4
+    ts_cv_gap: 0
+  shap_unlock:
+    min_cv_r2: 0.05
+    max_mae_ratio_vs_linear: 1.05
+    min_top3_fold_rank_agreement: 0.60
+  clustering:
+    min_valid_days: 30
+    n_clusters: 3
+    n_init: 30
+    random_state: 42
+    bootstrap_subsamples: 25
+    subsample_fraction: 0.80
+    ari_stable_threshold: 0.70
+    ari_moderate_threshold: 0.50
+  journal_nlp:
+    unsupervised_tfidf_min_notes: 100
+    episode_lift_min_episodes: 15
+
 

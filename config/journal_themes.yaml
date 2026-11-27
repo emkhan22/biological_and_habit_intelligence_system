@@ -1,0 +1,89 @@
+# Transparent Human-Auditable Structured Theme Taxonomy for Non-Smoking Micro Journal
+# Consumed by src/health_engine/ml/journal_nlp.py (`Gold_Journal_Themes` & `Gold_Episode_Rules`)
+# Strictly excludes isolated smoking constructs (AGENTS.md Rule 2).
+
+unsupervised_tfidf_min_notes: 100
+episode_lift_min_episodes: 15
+
+sentiment_lexicon:
+  positive_tokens:
+    - "happy"
+    - "good"
+    - "relieved"
+    - "steady"
+    - "energized"
+    - "great"
+    - "healthy"
+    - "improved"
+    - "calm"
+    - "focused"
+    - "better"
+  negative_tokens:
+    - "anxious"
+    - "terrified"
+    - "panic"
+    - "frustrated"
+    - "overwhelmed"
+    - "sad"
+    - "bad"
+    - "pain"
+    - "killing me"
+    - "cramping"
+    - "cramp"
+    - "terrible"
+    - "bloated"
+    - "nauseous"
+    - "constipation"
+    - "tired"
+    - "exhausted"
+
+themes:
+  - theme_id: "Work_Overwhelm"
+    description: "Acute workload stress, meeting pressure, or cognitive overload."
+    mood_patterns: ["overwhelmed", "frustrated", "stressed"]
+    context_patterns: ["work"]
+    text_patterns: ["finish this work", "overwhelmed", "work sprint", "meeting is starting", "deadline"]
+    require_work_context_for_mood: true
+
+  - theme_id: "Late_Night_Work"
+    description: "Working or logging cognitive/work activity during 00:00-05:00 IST circadian window."
+    hour_window_ist: [0, 5]
+    context_patterns: ["work"]
+    text_patterns: ["in the morning", "3:30 am", "03:30", "4:00 am", "04:00", "5:00 a.m.", "late night work"]
+
+  - theme_id: "Weigh_In_Anxiety"
+    description: "Apprehension, relief, or emotional reactivity around stepping on the scale."
+    text_patterns: ["check my weight", "checked my weight", "terrified to check", "weight check", "panic about", "weight has not increased"]
+
+  - theme_id: "Appetite_Suppression_Meal_Skip"
+    description: "GLP-1 mediated satiety or skipped afternoon/evening meals cascading into missed post-meal doses."
+    text_patterns: ["appetite suppression", "skipped afternoon meal", "skipped meal", "skipped lunch", "nauseous on shot day"]
+
+  - theme_id: "GI_Distress"
+    description: "Bloating, reflux, nausea, indigestion, or constipation episodes."
+    symptom_patterns: ["bloating", "reflux", "acid reflux", "nausea", "constipation", "indigestion", "stomach"]
+    text_patterns: ["bloated", "constipation", "need to poop", "acid reflux", "nauseous"]
+
+  - theme_id: "Musculoskeletal_Pain"
+    description: "Shoulder, neck, back, or upper-extremity musculoskeletal flare."
+    symptom_patterns: ["right shoulder pain", "shoulder pain", "joint pain", "neck pain", "elbow", "wrist"]
+    text_patterns: ["right shoulder", "shoulder is killing", "shoulder pain"]
+
+  - theme_id: "Nocturnal_Cramp"
+    description: "Overnight or wake-up lower-extremity/foot muscle cramping."
+    symptom_patterns: ["right foot cramp", "left foot cramp", "foot cramp", "leg cramp"]
+    text_patterns: ["foot was cramping", "foot cramp", "woke up from my sleep"]
+
+  - theme_id: "Missed_Walk_Guilt"
+    description: "Self-reported missed daily walk or low-movement frustration."
+    text_patterns: ["didn't go for the walk", "did not go for the walk", "missed walk", "skipped walk", "missed today's walk"]
+
+  - theme_id: "Positive_Momentum"
+    description: "Satisfaction with healthy nutrition, adherence, or symptom relief."
+    mood_patterns: ["happy", "relieved", "proud"]
+    text_patterns: ["happy with my breakfast", "eating healthy", "weight has not increased", "lost 400 grams", "pain started reducing"]
+
+  - theme_id: "Fatigue_Sleep_Debt"
+    description: "Morning tiredness, sleepiness, or sleep-debt drag."
+    mood_patterns: ["tired", "sleepy", "exhausted"]
+    text_patterns: ["need to sleep", "very lazy", "woke up feeling", "tired", "exhausted"]
