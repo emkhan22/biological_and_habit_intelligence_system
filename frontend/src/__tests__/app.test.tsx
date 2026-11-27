@@ -241,4 +241,74 @@ describe("Health Intelligence V3.0 PWA", () => {
     );
     expect(screen.getByText("10-Min Water Delay")).toBeInTheDocument();
   });
+
+  it("shows latest-valid fallback with 'as of' date and Regimen Consistency on Today, plus expandable correlations & grouped ML audit on Ask & Research", () => {
+    const payload = makeBasePayload(false);
+    // Simulate live Cloudflare mode where today's biometrics are unlogged & packet readiness_pillars is omitted
+    payload.packet!.today_and_7d = {
+      latest_phenotype: "Late-Night Sedentary Drain",
+      latest_biometrics: { date: "2026-11-27", display_date: "27-11-2026", hrv_rmssd_ms: null, asleep_min: null },
+    };
+    payload.tables.Gold_Daily_Unified = [
+      { date: "2026-11-26", display_date: "26-11-2026", asleep_min: 420, hrv_rmssd_ms: 48.5, sleep_hr_avg: 66.2, steps: 8200, protein_g: 95 },
+      { date: "2026-11-27", display_date: "27-11-2026", asleep_min: null, hrv_rmssd_ms: null, sleep_hr_avg: null, steps: null, protein_g: null },
+    ];
+    payload.tables.AI_Insights_Cache = [
+      {
+        report_date: "2026-11-27",
+        headline: "Tirzepatide 5.0 mg Day 1: 100.0 Regimen Consistency",
+        overview_one_liner: "On 27-11-2026, Regimen Consistency is 100.0 and today's wearable biometrics are unlogged.",
+        epistemic_label: "Descriptive",
+        top_3_patterns_json: "[]",
+        action_nudges_json: "[]",
+      },
+    ];
+    payload.tables.Gold_Stats_Correlations = [
+      {
+        pair_id: "CORR-1",
+        x_variable: "bedtime_hr_rel_mid",
+        y_variable: "asleep_min",
+        spearman_rho: -0.45,
+        partial_rho: -0.38,
+        valid_n: 120,
+        effective_n: 95,
+        stability_flag: "Stable_Signal",
+      },
+    ];
+    payload.tables.Model_Run_Audit = [
+      {
+        model_id: "ML_SLEEP_2A_CORE",
+        algorithm: "RandomForestRegressor_SHAP",
+        valid_n: 171,
+        effective_n: 140,
+        ml_cv_r2: 0.16,
+        stability_flag: "Active_Level_3",
+        maturity_level: "Level 3",
+      },
+      {
+        model_id: "ML_WEIGHT_3A_INTERVALS",
+        algorithm: "Gated",
+        valid_n: 12,
+        effective_n: 12,
+        stability_flag: "Gated_Insufficient_N",
+        maturity_level: "Level 0-1",
+      },
+    ];
+
+    render(<App initialData={payload} />);
+    expect(screen.getByText("100.0")).toBeInTheDocument();
+    expect(screen.getAllByText(/as of 26-11-2026/i).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getAllByText("Ask & Research")[0]);
+    expect(screen.getByText("₹279.26 / ₹500")).toBeInTheDocument();
+    expect(screen.getByText(/Enable Google Search Grounding/i)).toBeInTheDocument();
+    expect(screen.getByText(/Active Models \(1\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Waiting for More Data \(1\)/i)).toBeInTheDocument();
+
+    // Click correlation row to expand plain-English explanation
+    const corrCell = screen.getByText(/Bedtime Timing \(vs\. Midnight\) → Clean Sleep Duration/i);
+    fireEvent.click(corrCell);
+    expect(screen.getByText(/Correlation does not prove causation/i)).toBeInTheDocument();
+  });
 });
+

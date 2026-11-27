@@ -11,6 +11,13 @@ import {
   formatSleepHm,
   safeJsonParse,
 } from "../utils/formatters";
+import {
+  findLatestValid,
+  humanizeClinicalText,
+  humanizeStatus,
+  humanizeTreatmentId,
+  resolveReadinessPillars,
+} from "../utils/humanize";
 
 interface Props {
   data: HealthDataPayload;
@@ -27,6 +34,8 @@ export const TodayView: React.FC<Props> = ({ data }) => {
   const clin = packet.clinical_context ?? {};
 
   const dailyRows = data.tables.Gold_Daily_Unified ?? [];
+  const baselineRows = data.tables.Gold_Personal_Baselines ?? [];
+  const spikeRows = data.tables.Gold_Sleep_HR_Spikes ?? [];
   const latestDaily = dailyRows[dailyRows.length - 1] ?? {};
   const aiInsights = data.tables.AI_Insights_Cache ?? [];
   const latestBrief = aiInsights[aiInsights.length - 1] ?? {};
@@ -39,18 +48,53 @@ export const TodayView: React.FC<Props> = ({ data }) => {
     latestDaily.is_period_day === true ||
     String(latestDaily.is_period_day).toLowerCase() === "true";
 
-  const pillars = t7.readiness_pillars ?? {};
+  // Item 1: 5-Pillar Readiness Strip with latest-valid fallback & Regimen Consistency sync
+  const briefCombinedText = `${latestBrief.headline || ""} ${latestBrief.overview_one_liner || ""} ${latestBrief.inside_your_body_summary || ""}`;
+  const resolvedPillars = resolveReadinessPillars(t7.readiness_pillars, dailyRows, briefCombinedText);
+
   const pillarItems = [
-    { label: "Sleep & Circadian", val: pillars.sleep_circadian_score, color: "text-[#A78BFA]" },
-    { label: "Autonomic Recovery", val: pillars.autonomic_recovery_score, color: "text-[#34D399]" },
-    { label: "Activity & Steps", val: pillars.activity_movement_score, color: "text-[#60A5FA]" },
-    { label: "Nutrition & Fuel", val: pillars.nutrition_metabolic_score, color: "text-[#FBBF24]" },
-    { label: "Regimen Consistency", val: pillars.regimen_consistency_score, color: "text-[#C06C9F]" },
+    { label: "Sleep & Circadian", metric: resolvedPillars.sleep, color: "text-[#A78BFA]" },
+    { label: "Autonomic Recovery", metric: resolvedPillars.autonomic, color: "text-[#34D399]" },
+    { label: "Activity & Steps", metric: resolvedPillars.activity, color: "text-[#60A5FA]" },
+    { label: "Nutrition & Fuel", metric: resolvedPillars.nutrition, color: "text-[#FBBF24]" },
+    { label: "Regimen Consistency", metric: resolvedPillars.regimen, color: "text-[#C06C9F]" },
   ];
+
+  // Item 1: Latest-valid fallback for Autonomic & Sleep Recovery card
+  const latestHrv =
+    t7.latest_biometrics?.hrv_rmssd_ms != null && t7.latest_biometrics?.hrv_rmssd_ms !== ""
+      ? { value: Number(t7.latest_biometrics.hrv_rmssd_ms), date: meta.report_date_display || latestDaily.display_date, isFallback: false }
+      : findLatestValid(dailyRows, "hrv_rmssd_ms");
+
+  const latestSleep =
+    t7.latest_biometrics?.asleep_min != null && t7.latest_biometrics?.asleep_min !== ""
+      ? { value: Number(t7.latest_biometrics.asleep_min), date: meta.report_date_display || latestDaily.display_date, isFallback: false }
+      : findLatestValid(dailyRows, "asleep_min");
+
+  const latestSleepHr =
+    t7.latest_biometrics?.sleep_hr_avg != null && t7.latest_biometrics?.sleep_hr_avg !== ""
+      ? { value: Number(t7.latest_biometrics.sleep_hr_avg), date: meta.report_date_display || latestDaily.display_date, isFallback: false }
+      : findLatestValid(dailyRows, "sleep_hr_avg");
+
+  const latestSpikes =
+    t7.latest_sleep_hr_spikes_per_hr != null && t7.latest_sleep_hr_spikes_per_hr !== ""
+      ? { value: Number(t7.latest_sleep_hr_spikes_per_hr), date: meta.report_date_display || latestDaily.display_date, isFallback: false }
+      : findLatestValid(spikeRows, "spikes_per_asleep_hr");
+
+  const zScores = t7.latest_z_scores ?? {};
+  const hrvZ =
+    zScores.hrv_robust_z != null
+      ? Number(zScores.hrv_robust_z)
+      : findLatestValid(baselineRows, "hrv_z_robust_glp1").value ??
+        findLatestValid(baselineRows, "hrv_z_robust_pre_oct").value;
+  const sleepZ =
+    zScores.sleep_dur_robust_z != null
+      ? Number(zScores.sleep_dur_robust_z)
+      : findLatestValid(baselineRows, "sleep_dur_z_robust_glp1").value ??
+        findLatestValid(baselineRows, "sleep_dur_z_robust_pre_oct").value;
 
   const nudges = safeJsonParse<Array<Record<string, any>>>(latestBrief.action_nudges_json, []);
   const patterns = safeJsonParse<Array<Record<string, any>>>(latestBrief.top_3_patterns_json, []);
-  const zScores = t7.latest_z_scores ?? {};
   const openWindows: Array<Record<string, any>> = clin.open_retest_windows ?? [];
   const latestMasld = (wt.masld_progress ?? [])[0];
   const latestInterval = (wt.recent_intervals ?? [])[wt.recent_intervals?.length - 1];
@@ -80,7 +124,7 @@ export const TodayView: React.FC<Props> = ({ data }) => {
               Executive Overview · {formatDateIN(meta.report_date_display || latestDaily.display_date)} (IST)
             </p>
             <h1 className="text-xl font-semibold tracking-tight text-slate-100 mt-0.5">
-              {latestBrief.headline || "Daily Biological & Habit Synthesis"}
+              {humanizeClinicalText(latestBrief.headline) || "Daily Biological & Habit Synthesis"}
             </h1>
           </div>
 
@@ -106,7 +150,7 @@ export const TodayView: React.FC<Props> = ({ data }) => {
                 key={w.treatment_id}
                 className="px-2.5 py-1 rounded-md text-xs font-medium bg-[#FB7185]/10 border border-[#FB7185]/30 text-[#FB7185]"
               >
-                {w.treatment_id}: {w.clinical_window_status}
+                {humanizeTreatmentId(w.treatment_id)}: {humanizeStatus(w.clinical_window_status)}
               </span>
             ))}
           </div>
@@ -118,8 +162,13 @@ export const TodayView: React.FC<Props> = ({ data }) => {
             <div key={p.label} className="obsidian-subcard px-3 py-2.5">
               <p className="text-[11px] text-slate-400 truncate">{p.label}</p>
               <p className={`text-lg font-semibold font-mono tabular-nums mt-0.5 ${p.color}`}>
-                {p.val !== null && p.val !== undefined ? `${Number(p.val).toFixed(0)}` : "—"}
+                {p.metric.value !== null ? `${p.metric.value.toFixed(p.label === "Regimen Consistency" ? 1 : 0)}` : "—"}
               </p>
+              {p.metric.isFallback && p.metric.date && (
+                <p className="text-[10px] text-slate-500 mt-0.5">
+                  as of {formatDateIN(p.metric.date)}
+                </p>
+              )}
             </div>
           ))}
         </div>
@@ -130,7 +179,7 @@ export const TodayView: React.FC<Props> = ({ data }) => {
             <div className="flex items-start gap-2">
               <Sparkles className="w-4 h-4 text-[#C06C9F] shrink-0 mt-0.5" />
               <p className="text-sm text-slate-200 leading-relaxed">
-                {latestBrief.overview_one_liner ||
+                {humanizeClinicalText(latestBrief.overview_one_liner) ||
                   "Validated Silver/Gold telemetry synced. Expand coaching nudges for actionable priorities."}
               </p>
             </div>
@@ -142,7 +191,9 @@ export const TodayView: React.FC<Props> = ({ data }) => {
             onClick={() => setNudgesOpen((v) => !v)}
             className="inline-flex items-center gap-1.5 text-xs font-medium text-[#60A5FA] hover:underline cursor-pointer"
           >
-            {nudgesOpen ? "Hide Patterns & Coaching Nudges" : `Expand Top Patterns (${patterns.length}) & Nudges (${nudges.length})`}
+            {nudgesOpen
+              ? "Hide Patterns & Coaching Nudges"
+              : `Expand Top Patterns (${patterns.length}) & Nudges (${nudges.length})`}
             {nudgesOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           </button>
 
@@ -153,11 +204,13 @@ export const TodayView: React.FC<Props> = ({ data }) => {
                 {patterns.map((pt, i) => (
                   <div key={i} className="p-2.5 rounded-lg bg-[#0B0D12] border border-[#283042] space-y-1">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-slate-100">{pt.pattern_title}</span>
+                      <span className="text-xs font-semibold text-slate-100">
+                        {humanizeClinicalText(pt.pattern_title)}
+                      </span>
                       <EpistemicPill label={pt.epistemic_label} />
                     </div>
-                    <p className="text-xs text-slate-300 font-mono">{pt.supporting_metric}</p>
-                    <p className="text-[11px] text-slate-500">{pt.caveat}</p>
+                    <p className="text-xs text-slate-300">{humanizeClinicalText(pt.supporting_metric)}</p>
+                    <p className="text-[11px] text-slate-500">{humanizeClinicalText(pt.caveat)}</p>
                   </div>
                 ))}
               </div>
@@ -166,11 +219,11 @@ export const TodayView: React.FC<Props> = ({ data }) => {
                 {nudges.map((n, i) => (
                   <div key={i} className="p-2.5 rounded-lg bg-[#0B0D12] border border-[#283042] space-y-1">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-slate-100">{n.title}</span>
+                      <span className="text-xs font-semibold text-slate-100">{humanizeClinicalText(n.title)}</span>
                       <EpistemicPill label={n.epistemic_label} />
                     </div>
-                    <p className="text-xs text-slate-300">{n.why}</p>
-                    <p className="text-[11px] text-slate-400">Data: {n.your_data}</p>
+                    <p className="text-xs text-slate-300">{humanizeClinicalText(n.why)}</p>
+                    <p className="text-[11px] text-slate-400">Data: {humanizeClinicalText(n.your_data)}</p>
                   </div>
                 ))}
               </div>
@@ -196,29 +249,44 @@ export const TodayView: React.FC<Props> = ({ data }) => {
               <div className="obsidian-subcard p-3">
                 <span className="text-[11px] font-sans text-slate-400 block">Overnight HRV</span>
                 <span className="text-base font-semibold text-[#34D399]">
-                  {formatNum(t7.latest_biometrics?.hrv_rmssd_ms, 1, " ms")}
+                  {formatNum(latestHrv.value, 1, " ms")}
                 </span>
                 <span className="text-[11px] text-slate-500 block">
-                  Z: {formatSigned(zScores.hrv_robust_z)}
+                  Z: {formatSigned(hrvZ)}
                 </span>
+                {latestHrv.isFallback && latestHrv.date && (
+                  <span className="text-[10px] font-sans text-slate-500 block mt-0.5">
+                    as of {formatDateIN(latestHrv.date)}
+                  </span>
+                )}
               </div>
               <div className="obsidian-subcard p-3">
                 <span className="text-[11px] font-sans text-slate-400 block">Clean Sleep</span>
                 <span className="text-base font-semibold text-[#A78BFA]">
-                  {formatSleepHm(t7.latest_biometrics?.asleep_min)}
+                  {formatSleepHm(latestSleep.value)}
                 </span>
                 <span className="text-[11px] text-slate-500 block">
-                  Z: {formatSigned(zScores.sleep_dur_robust_z)}
+                  Z: {formatSigned(sleepZ)}
                 </span>
+                {latestSleep.isFallback && latestSleep.date && (
+                  <span className="text-[10px] font-sans text-slate-500 block mt-0.5">
+                    as of {formatDateIN(latestSleep.date)}
+                  </span>
+                )}
               </div>
               <div className="obsidian-subcard p-3">
                 <span className="text-[11px] font-sans text-slate-400 block">HR Spikes / Hr</span>
                 <span className="text-base font-semibold text-[#60A5FA]">
-                  {formatNum(t7.latest_sleep_hr_spikes_per_hr, 2)}
+                  {formatNum(latestSpikes.value, 2)}
                 </span>
                 <span className="text-[11px] text-slate-500 block">
-                  Sleep HR: {formatNum(t7.latest_biometrics?.sleep_hr_avg, 1, " bpm")}
+                  Sleep HR: {formatNum(latestSleepHr.value, 1, " bpm")}
                 </span>
+                {(latestSpikes.isFallback || latestSleepHr.isFallback) && (latestSpikes.date || latestSleepHr.date) && (
+                  <span className="text-[10px] font-sans text-slate-500 block mt-0.5">
+                    as of {formatDateIN(latestSpikes.date || latestSleepHr.date)}
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -226,16 +294,16 @@ export const TodayView: React.FC<Props> = ({ data }) => {
           <StatsCoverageDrawer
             meta={{
               raw_n: meta.total_spine_days,
-              valid_n: meta.coverage_7d?.sleep_present_days,
-              effective_n: meta.coverage_7d?.vitals_present_days,
+              valid_n: meta.coverage_7d?.sleep_present_days ?? dailyRows.slice(-7).filter((r) => r.asleep_min != null).length,
+              effective_n: meta.coverage_7d?.vitals_present_days ?? dailyRows.slice(-7).filter((r) => r.hrv_rmssd_ms != null).length,
               missingness_pct:
                 meta.coverage_7d?.sleep_present_days != null
                   ? ((7 - meta.coverage_7d.sleep_present_days) / 7) * 100
-                  : null,
+                  : ((7 - dailyRows.slice(-7).filter((r) => r.asleep_min != null).length) / 7) * 100,
               maturity_level: "7-Day Wearable Coverage",
               stability_flag: "Measured_Wear_Verified",
               caveat_note:
-                "Only wear-verified Fitbit staged nights >=120m are averaged; unlogged/unworn nights remain NaN.",
+                "Only wear-verified Fitbit staged nights >=120m are averaged; unlogged/unworn nights remain NaN and display the latest valid synced date.",
             }}
           />
         </article>
@@ -273,10 +341,10 @@ export const TodayView: React.FC<Props> = ({ data }) => {
               <div className="obsidian-subcard p-3">
                 <span className="text-[11px] font-sans text-slate-400 block">MASLD 7% Goal</span>
                 <span className="text-base font-semibold text-[#FBBF24]">
-                  {formatNum(latestMasld?.pct_weight_lost_from_oct7, 2, "%")}
+                  {formatNum(latestMasld?.pct_weight_lost_from_oct7, 1, "%")}
                 </span>
                 <span className="text-[11px] text-slate-500 block">
-                  Left: {formatNum(latestMasld?.kg_remaining_to_target, 2, " kg")}
+                  Left: {formatNum(latestMasld?.kg_remaining_to_target, 1, " kg")}
                 </span>
               </div>
             </div>
@@ -318,7 +386,7 @@ export const TodayView: React.FC<Props> = ({ data }) => {
                       Protein: {formatNum(row.protein_g_mean, 0, "g")} · Clean: {formatNum(row.clean_eating_score, 0)}
                     </p>
                     <p className="font-mono text-slate-400 tabular-nums">
-                      Hunger: {formatNum(row.hunger_mean, 1)} · Steps: {formatNum(row.steps_mean, 0)}
+                      Steps: {formatNum(row.steps_mean, 0)} · Sleep: {formatSleepHm(row.asleep_hr_mean != null ? Number(row.asleep_hr_mean) * 60 : null)}
                     </p>
                   </div>
                 ))
@@ -339,7 +407,7 @@ export const TodayView: React.FC<Props> = ({ data }) => {
               maturity_level: peakVsTrough[0]?.maturity_level || "Level 0 (Baseline)",
               stability_flag: "Descriptive_Only",
               caveat_note:
-                "PK concentration is a modeled half-life curve (~5 days); treatment scorecards carry overlap_warning for concurrent Oct/Nov starts.",
+                "PK concentration is a modeled half-life curve (~5 days); treatment scorecards note concurrent Oct/Nov therapy starts.",
             }}
           />
         </article>
@@ -370,7 +438,7 @@ export const TodayView: React.FC<Props> = ({ data }) => {
                 <p className="text-[11px] text-slate-400 pt-1">
                   Open windows:{" "}
                   {openWindows
-                    .map((w) => `${w.treatment_id} (Day ${w.days_on_treatment})`)
+                    .map((w) => `${humanizeTreatmentId(w.treatment_id)} (Day ${w.days_on_treatment})`)
                     .join(" · ")}
                 </p>
               )}

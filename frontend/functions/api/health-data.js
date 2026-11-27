@@ -18,6 +18,7 @@ const CLEAN_TABS = [
   "Gold_Cardiac_Efficiency_Buckets",
   "Gold_Habit_Durability",
   "Gold_Sweet_Hunger_Analysis",
+  "Gold_Sweet_Meal_Tags_AI",
   "Gold_Calorie_Balance_Audit",
   "Gold_ML_Model_Summary",
   "Gold_ML_Feature_Drivers",
@@ -61,6 +62,22 @@ export async function onRequestGet({ env }) {
     const pheno = tables.Gold_Daily_Phenotypes || [];
     const latestPheno = pheno[pheno.length - 1] || {};
 
+    // Deduplicate open retest / equilibration windows from Gold_Treatment_Scorecards
+    const seenWin = new Set();
+    const openWindows = [];
+    for (const sc of tables.Gold_Treatment_Scorecards || []) {
+      const tid = sc.treatment_id;
+      const st = String(sc.clinical_window_status || "");
+      if (tid && !seenWin.has(tid) && (st.includes("Retest") || st.includes("Equilibration"))) {
+        seenWin.add(tid);
+        openWindows.push({
+          treatment_id: tid,
+          days_on_treatment: sc.days_on_treatment ?? null,
+          clinical_window_status: st,
+        });
+      }
+    }
+
     const payload = {
       source: "Health_Intelligence_Store_v2 (Live)",
       packet: {
@@ -87,7 +104,7 @@ export async function onRequestGet({ env }) {
         },
         clinical_context: {
           clinical_indices: (tables.Gold_Clinical_Indices || []).slice(0, 10),
-          open_retest_windows: [],
+          open_retest_windows: openWindows,
         },
       },
       tables,
