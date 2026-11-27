@@ -1,0 +1,8 @@
+# Workspace Rules: Personal Health Intelligence Engine
+
+1. **Silver-First Data Contract:** No statistical, ML, or UI module may read directly from raw source tabs. Every downstream consumer must read exclusively from validated Silver or Gold tables produced by the Python pipeline. Never overwrite original clinical or source columns.
+2. **Strict Smoking Privacy Boundary:** `Micro Journal!Smoking_Log` is strictly isolated. It must NEVER be read by the main health pipeline, NEVER written into `Health_Intelligence_Store`, NEVER included in `AI_Briefing_Packet`, and NEVER printed in raw form to stdout/CI logs. It may only be processed by a separate `private_smoking/` package using a separate Google Service Account and writing only to `Smoking_Private_Store`.
+3. **Epistemic Honesty Labels:** Every analytical output and UI schema must explicitly tag its epistemic class as one of: `Measured`, `Descriptive`, `Correlation`, `Prediction`, `Causal_Hypothesis`, or `Screening_Context`. Never phrase correlations or feature importances (e.g., Ridge weights or SHAP) as causal proof.
+4. **No Silent Zero-Filling:** Missing wearables, unlogged nutrition days, and unlogged journal days must remain `NaN` with an explicit `missing_reason` tag (`Not_Worn`, `Not_Logged`, `Source_Gap`, `True_Zero`).
+5. **Indian Localization & Timezone:** All timestamps use IST (`Asia/Kolkata`). User-facing display dates use `DD-MM-YYYY`; internal analytical keys use ISO `YYYY-MM-DD`.
+6. **Code & Verification Standards:** Verify exact third-party library syntax against installed versions before writing code. Every pipeline stage must have unit tests using deterministic local CSV fixtures and must pass `pytest` before marking a task complete.
